@@ -43,6 +43,7 @@ interface InventoryStats {
 interface ImportResult {
   rows_imported: number;
   already_existed: number;
+  ebay_csv_path: string | null;
 }
 
 interface SelBox { x: number; y: number; w: number; h: number }
@@ -253,7 +254,7 @@ export default function InventoryManager() {
         schemaId,
       });
       setStatusMsg({
-        text: `Imported ${result.rows_imported} items.${result.already_existed > 0 ? ` (${result.already_existed} skipped)` : ""}`,
+        text: `Imported ${result.rows_imported} items. Original CSV updated for eBay upload.`,
         kind: "ok",
       });
       await loadData();

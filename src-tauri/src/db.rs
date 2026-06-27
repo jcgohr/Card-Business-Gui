@@ -120,6 +120,7 @@ pub struct SkuSchema {
 pub struct ImportResult {
     pub rows_imported: usize,
     pub already_existed: usize,
+    pub ebay_csv_path: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -283,10 +284,39 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
         return Err("CSV is missing a Title column".into());
     }
 
+    // Buffer all records so we can (1) rewrite the original file and (2) import to DB
+    let all_records: Vec<csv::StringRecord> = rdr
+        .records()
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+
+    // Overwrite the original CSV with CustomLabel cleared and comma-separated SKUs
+    // expanded into individual rows — ready to upload directly to eBay.
+    {
+        let mut wtr = csv::Writer::from_path(path).map_err(|e| e.to_string())?;
+        wtr.write_record(&headers).map_err(|e| e.to_string())?;
+        for record in &all_records {
+            let title = get(record, c_title);
+            if title.is_empty() { continue; }
+            let raw_label = get(record, c_custom_label);
+            let sku_count = if raw_label.is_empty() {
+                1
+            } else {
+                raw_label.split(',').filter(|s| !s.trim().is_empty()).count().max(1)
+            };
+            for _ in 0..sku_count {
+                let fields: Vec<String> = record.iter().enumerate().map(|(i, s)| {
+                    if Some(i) == c_custom_label { String::new() } else { s.to_string() }
+                }).collect();
+                wtr.write_record(&fields).map_err(|e| e.to_string())?;
+            }
+        }
+        wtr.flush().map_err(|e| e.to_string())?;
+    }
+
     let mut rows_imported = 0usize;
 
-    for result in rdr.records() {
-        let record = result.map_err(|e| e.to_string())?;
+    for record in all_records {
         let title = get(&record, c_title);
         if title.is_empty() {
             continue;
@@ -371,7 +401,7 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
         params![filename, rows_imported as i64],
     ).map_err(|e| e.to_string())?;
 
-    Ok(ImportResult { rows_imported, already_existed: 0 })
+    Ok(ImportResult { rows_imported, already_existed: 0, ebay_csv_path: None })
 }
 
 // ---------------------------------------------------------------------------
@@ -541,7 +571,7 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
         params![filename, rows_imported as i64],
     ).map_err(|e| e.to_string())?;
 
-    Ok(ImportResult { rows_imported, already_existed })
+    Ok(ImportResult { rows_imported, already_existed, ebay_csv_path: None })
 }
 
 // ---------------------------------------------------------------------------
