@@ -12,7 +12,7 @@ interface SkuSchema {
 interface Props {
   path: string;
   filename: string;
-  onConfirm: (schemaId: number | null) => void;
+  onConfirm: (schemaId: number | null, keepFirstSku: boolean) => void;
   onCancel: () => void;
 }
 
@@ -34,6 +34,7 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
   const [newName, setNewName] = useState("");
   const [newLabels, setNewLabels] = useState<string[]>([...DEFAULT_LABELS]);
   const [creating, setCreating] = useState(false);
+  const [keepFirstSku, setKeepFirstSku] = useState(false);
 
   useEffect(() => {
     invoke<SkuSchema[]>("get_sku_schemas").then(setSchemas).catch(() => {});
@@ -78,13 +79,13 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
           name: newName.trim(),
           segmentLabels: newLabels.filter(Boolean),
         });
-        onConfirm(schema.id);
+        onConfirm(schema.id, keepFirstSku);
       } catch (e) {
         alert(`Failed to create schema: ${e}`);
         setCreating(false);
       }
     } else {
-      onConfirm(selectedId);
+      onConfirm(selectedId, keepFirstSku);
     }
   }
 
@@ -185,7 +186,15 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
 
         {/* Footer */}
         <div className="spm-footer">
-          <button className="spm-skip" onClick={() => onConfirm(null)}>
+          <label className="spm-keep-sku">
+            <input
+              type="checkbox"
+              checked={keepFirstSku}
+              onChange={e => setKeepFirstSku(e.target.checked)}
+            />
+            Keep first SKU in CustomLabel
+          </label>
+          <button className="spm-skip" onClick={() => onConfirm(null, keepFirstSku)}>
             Import without schema
           </button>
           <div className="spm-footer-right">

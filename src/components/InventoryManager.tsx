@@ -243,7 +243,7 @@ export default function InventoryManager() {
     }
   }
 
-  async function doImport(schemaId: number | null) {
+  async function doImport(schemaId: number | null, keepFirstSku: boolean) {
     if (!pendingImport) return;
     setPendingImport(null);
     setLoading(true);
@@ -252,6 +252,7 @@ export default function InventoryManager() {
       const result = await invoke<ImportResult>("import_inventory_csv", {
         path: pendingImport.path,
         schemaId,
+        keepFirstSku,
       });
       setStatusMsg({
         text: `Imported ${result.rows_imported} items. Original CSV updated for eBay upload.`,

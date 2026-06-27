@@ -313,6 +313,22 @@
   padding: 0.75rem 1.25rem;
   border-top: 1px solid var(--border);
   gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.spm-keep-sku {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.spm-keep-sku input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent);
 }
 
 .spm-footer-right {

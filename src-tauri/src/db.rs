@@ -246,7 +246,7 @@ fn strip_bom(data: Vec<u8>) -> Vec<u8> {
 // Inventory CSV import
 // ---------------------------------------------------------------------------
 
-pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_id: Option<i64>) -> Result<ImportResult, String> {
+pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_id: Option<i64>, keep_first_sku: bool) -> Result<ImportResult, String> {
     let raw = std::fs::read(path).map_err(|e| e.to_string())?;
     let data = strip_bom(raw);
     let mut rdr = csv::Reader::from_reader(data.as_slice());
@@ -304,9 +304,15 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
             } else {
                 raw_label.split(',').filter(|s| !s.trim().is_empty()).count().max(1)
             };
-            for _ in 0..sku_count {
+            let first_sku = raw_label.split(',').next().unwrap_or("").trim().to_string();
+            for row_idx in 0..sku_count {
+                let label_val = if keep_first_sku && row_idx == 0 {
+                    first_sku.clone()
+                } else {
+                    String::new()
+                };
                 let fields: Vec<String> = record.iter().enumerate().map(|(i, s)| {
-                    if Some(i) == c_custom_label { String::new() } else { s.to_string() }
+                    if Some(i) == c_custom_label { label_val.clone() } else { s.to_string() }
                 }).collect();
                 wtr.write_record(&fields).map_err(|e| e.to_string())?;
             }
