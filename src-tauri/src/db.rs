@@ -125,6 +125,8 @@ pub fn init(path: &Path) -> rusqlite::Result<Connection> {
     let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN color TEXT", []);
     let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN character TEXT", []);
     let _ = conn.execute("ALTER TABLE orders ADD COLUMN fulfillment_id INTEGER REFERENCES fulfillments(id)", []);
+    let _ = conn.execute("ALTER TABLE fulfillments ADD COLUMN pick_seconds INTEGER", []);
+    let _ = conn.execute("ALTER TABLE fulfillments ADD COLUMN pack_seconds INTEGER", []);
     Ok(conn)
 }
 
@@ -235,6 +237,9 @@ pub struct FulfillmentBatch {
     pub order_count: i64,
     pub new_order_count: i64,
     pub item_count: i64,
+    pub pick_seconds: Option<i64>,
+    pub pack_seconds: Option<i64>,
+    pub total_sales: f64,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -1125,7 +1130,10 @@ pub fn get_fulfillments(conn: &Connection) -> Result<Vec<FulfillmentBatch>, Stri
         "SELECT f.id, f.filename, f.imported_at,
                 COUNT(DISTINCT o.id) as order_count,
                 COUNT(DISTINCT CASE WHEN o.status = 'new' THEN o.id END) as new_order_count,
-                COUNT(oi.id) as item_count
+                COUNT(oi.id) as item_count,
+                f.pick_seconds,
+                f.pack_seconds,
+                COALESCE(SUM(oi.sold_for), 0.0) as total_sales
          FROM fulfillments f
          LEFT JOIN orders o ON o.fulfillment_id = f.id
          LEFT JOIN order_items oi ON oi.order_id = o.id
@@ -1141,12 +1149,23 @@ pub fn get_fulfillments(conn: &Connection) -> Result<Vec<FulfillmentBatch>, Stri
             order_count:     row.get(3)?,
             new_order_count: row.get(4)?,
             item_count:      row.get(5)?,
+            pick_seconds:    row.get(6)?,
+            pack_seconds:    row.get(7)?,
+            total_sales:     row.get(8)?,
         })
     }).map_err(|e| e.to_string())?
     .collect::<rusqlite::Result<Vec<_>>>()
     .map_err(|e| e.to_string())?;
 
     Ok(rows)
+}
+
+pub fn save_fulfillment_times(conn: &Connection, fulfillment_id: i64, pick_seconds: i64, pack_seconds: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE fulfillments SET pick_seconds = ?1, pack_seconds = ?2 WHERE id = ?3",
+        params![pick_seconds, pack_seconds, fulfillment_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub fn get_pick_sheet(conn: &Connection, fulfillment_id: i64) -> Result<Vec<PickSheetItem>, String> {

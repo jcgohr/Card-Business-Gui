@@ -13,6 +13,9 @@ interface FulfillmentBatch {
   order_count: number;
   new_order_count: number;
   item_count: number;
+  pick_seconds: number | null;
+  pack_seconds: number | null;
+  total_sales: number;
 }
 
 interface PickSheetItem {
@@ -203,7 +206,15 @@ export default function FulfillmentManager() {
     try { await invoke("mark_order_packed", { orderId: order.order_id }); } catch {}
 
     if (currentOrderIdx >= packOrders.length - 1) {
-      setSavedPackSecs(Math.floor((Date.now() - packStartMs) / 1000));
+      const finalPackSecs = Math.floor((Date.now() - packStartMs) / 1000);
+      setSavedPackSecs(finalPackSecs);
+      try {
+        await invoke("save_fulfillment_times", {
+          fulfillmentId: selectedBatch!.id,
+          pickSeconds: savedPickSecs,
+          packSeconds: finalPackSecs,
+        });
+      } catch {}
       setPhase("complete");
       await loadBatches();
       setTimeout(() => {
@@ -331,15 +342,30 @@ export default function FulfillmentManager() {
             <div className="ff-empty">No fulfillments yet. Import an eBay orders CSV to get started.</div>
           ) : batches.map(b => {
             const done = b.new_order_count === 0;
+            const totalSecs = (b.pick_seconds ?? 0) + (b.pack_seconds ?? 0);
             return (
               <button key={b.id} className={`ff-batch-chip${done ? " ff-batch-chip--done" : ""}`} onClick={() => handleSelectBatch(b)}>
-                <span className="ff-batch-name">{baseName(b.filename)}</span>
-                <span className="ff-batch-meta">
-                  {formatDate(b.imported_at)} · {b.order_count} order{b.order_count !== 1 ? "s" : ""} · {b.item_count} item{b.item_count !== 1 ? "s" : ""}
-                </span>
-                {done
-                  ? <span className="ff-batch-badge ff-batch-badge--done">Complete</span>
-                  : <span className="ff-batch-badge ff-batch-badge--open">{b.new_order_count} unpacked</span>}
+                <div className="ff-batch-chip-left">
+                  <span className="ff-batch-name">{baseName(b.filename)}</span>
+                  <span className="ff-batch-meta">
+                    {formatDate(b.imported_at)} · {b.order_count} order{b.order_count !== 1 ? "s" : ""} · {b.item_count} item{b.item_count !== 1 ? "s" : ""}
+                  </span>
+                  {b.pick_seconds != null && (
+                    <div className="ff-batch-times">
+                      <span>🕐 <span className="ff-batch-time-label">Pick</span><span className="ff-batch-time-val">{formatTime(b.pick_seconds)}</span></span>
+                      <span><span className="ff-batch-time-label">Pack</span><span className="ff-batch-time-val">{formatTime(b.pack_seconds ?? 0)}</span></span>
+                      <span><span className="ff-batch-time-label">Total</span><span className="ff-batch-time-val">{formatTime(totalSecs)}</span></span>
+                    </div>
+                  )}
+                </div>
+                <div className="ff-batch-chip-right">
+                  {b.total_sales > 0 && (
+                    <span className="ff-batch-sales">${b.total_sales.toFixed(2)}</span>
+                  )}
+                  {done
+                    ? <span className="ff-batch-badge ff-batch-badge--done">Complete</span>
+                    : <span className="ff-batch-badge ff-batch-badge--open">{b.new_order_count} unpacked</span>}
+                </div>
               </button>
             );
           })}

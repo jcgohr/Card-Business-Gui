@@ -1189,6 +1189,17 @@ fn get_fulfillments(
 }
 
 #[tauri::command]
+fn save_fulfillment_times(
+    fulfillment_id: i64,
+    pick_seconds: i64,
+    pack_seconds: i64,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    db::save_fulfillment_times(&conn, fulfillment_id, pick_seconds, pack_seconds)
+}
+
+#[tauri::command]
 fn clear_fulfillments(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
@@ -1274,6 +1285,7 @@ pub fn run() {
             clear_active_listings,
             get_sync_status,
             get_fulfillments,
+            save_fulfillment_times,
             clear_fulfillments,
             get_pack_orders,
             get_pick_sheet,
