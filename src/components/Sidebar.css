@@ -1,0 +1,134 @@
+/* ── Toggle Button ────────────────────────────────── */
+
+.sidebar-toggle {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.2s;
+}
+
+.sidebar-toggle:hover {
+  border-color: var(--accent);
+}
+
+.sidebar-toggle-bar {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--text-primary);
+  border-radius: 2px;
+  transition: background 0.2s;
+}
+
+.sidebar-toggle:hover .sidebar-toggle-bar {
+  background: var(--accent);
+}
+
+/* ── Backdrop ─────────────────────────────────────── */
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* ── Sidebar Panel ────────────────────────────────── */
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 150;
+  width: 260px;
+  height: 100vh;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  overflow-y: auto;
+}
+
+.sidebar--open {
+  transform: translateX(0);
+}
+
+/* ── Sidebar Header ───────────────────────────────── */
+
+.sidebar-header {
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-title {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ── Sections ─────────────────────────────────────── */
+
+.sidebar-section {
+  padding: 20px 0 8px;
+}
+
+.sidebar-section-title {
+  margin: 0 0 6px;
+  padding: 0 20px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ── Items ────────────────────────────────────────── */
+
+.sidebar-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-item {
+  width: 100%;
+  text-align: left;
+  padding: 9px 20px;
+  border-radius: 0;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  box-shadow: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.sidebar-item:hover,
+.sidebar-item--active {
+  background: var(--bg-elevated);
+  border-left-color: var(--accent);
+  color: var(--accent);
+}
+
+.sidebar-empty {
+  margin: 0;
+  padding: 6px 20px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}

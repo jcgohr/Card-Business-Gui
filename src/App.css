@@ -1,0 +1,139 @@
+:root {
+  /* Colors */
+  --bg-base:       #0d0d0d;
+  --bg-surface:    #161616;
+  --bg-elevated:   #1f1f1f;
+  --border:        #2a2a2a;
+
+  --text-primary:  #e8e8e8;
+  --text-muted:    #888888;
+
+  --accent:        #4ade80;   /* green-400 */
+  --accent-hover:  #22c55e;   /* green-500 */
+  --accent-dim:    #16532d;   /* green, low-light for backgrounds */
+
+  /* Typography */
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+
+  color: var(--text-primary);
+  background-color: var(--bg-base);
+}
+
+/* ── App Shell ────────────────────────────────────── */
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Legacy layout helpers ────────────────────────── */
+
+.container {
+  margin: 0;
+  padding-top: 10vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Typography ───────────────────────────────────── */
+
+h1 {
+  text-align: center;
+  color: var(--text-primary);
+}
+
+a {
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: inherit;
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+/* ── Inputs & Buttons ─────────────────────────────── */
+
+input,
+button {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-primary);
+  background-color: var(--bg-elevated);
+  transition: border-color 0.2s, background-color 0.2s;
+  outline: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+button {
+  cursor: pointer;
+  border-color: var(--accent-dim);
+}
+
+button:hover {
+  border-color: var(--accent);
+  background-color: var(--accent-dim);
+}
+
+button:active {
+  border-color: var(--accent-hover);
+  background-color: var(--accent-dim);
+}
+
+#greet-input {
+  margin-right: 5px;
+}
+
+/* ── Logos ────────────────────────────────────────── */
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 0.75s;
+}
+
+.logo.vite:hover {
+  filter: drop-shadow(0 0 2em var(--accent));
+}
+
+.logo.tauri:hover {
+  filter: drop-shadow(0 0 2em var(--accent));
+}
+
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em var(--accent));
+}

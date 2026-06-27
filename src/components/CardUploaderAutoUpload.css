@@ -1,0 +1,329 @@
+.cau-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Header ───────────────────────────────────────── */
+
+.cau-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.cau-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.cau-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* ── Body ─────────────────────────────────────────── */
+
+.cau-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Settings panel ───────────────────────────────── */
+
+.cau-settings {
+  width: 320px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 16px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cau-section-label {
+  margin: 10px 0 2px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.cau-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.cau-field span:first-child {
+  width: 130px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.cau-field input,
+.cau-field select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.cau-field input:focus,
+.cau-field select:focus {
+  border-color: var(--accent);
+}
+
+.cau-field select option {
+  background: var(--bg-elevated);
+}
+
+.cau-field--row {
+  flex-direction: row;
+}
+
+.cau-flex {
+  flex: 1;
+  min-width: 0;
+}
+
+.cau-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.cau-checkbox input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.cau-radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.cau-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.cau-radio input[type="radio"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.cau-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cau-stepper input {
+  width: 52px;
+  text-align: center;
+}
+
+.cau-sku-preview {
+  font-family: "Consolas", "Menlo", monospace;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.cau-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Blacklist ────────────────────────────────────── */
+
+.cau-blacklist {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.cau-blacklist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+.cau-blacklist-item button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 1rem;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.cau-blacklist-item button:hover {
+  color: #ef4444;
+  background: transparent;
+}
+
+/* ── Buttons ──────────────────────────────────────── */
+
+.cau-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+  box-shadow: none;
+}
+
+.cau-btn--start {
+  background: #1d4ed8;
+  color: #fff;
+  border-color: #1d4ed8;
+}
+.cau-btn--start:hover:not(:disabled) { background: #1e40af; }
+.cau-btn--start:disabled { opacity: 0.4; cursor: default; }
+
+.cau-btn--stop {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+.cau-btn--stop:hover:not(:disabled) { background: #b91c1c; }
+.cau-btn--stop:disabled { opacity: 0.4; cursor: default; }
+
+.cau-btn--purple {
+  background: #7c3aed;
+  color: #fff;
+  border-color: #7c3aed;
+}
+.cau-btn--purple:hover { background: #6d28d9; }
+
+.cau-btn--teal {
+  background: #0e7490;
+  color: #fff;
+  border-color: #0e7490;
+}
+.cau-btn--teal:hover { background: #0c6278; }
+
+.cau-btn--ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.cau-btn--ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+
+.cau-btn--sm {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.cau-btn--save {
+  margin-top: 12px;
+  width: 100%;
+  background: #059669;
+  color: #fff;
+  border-color: #059669;
+  padding: 8px;
+}
+.cau-btn--save:hover { background: #047857; }
+
+/* ── Status ───────────────────────────────────────── */
+
+.cau-status {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding-left: 8px;
+}
+
+.cau-status--active {
+  color: var(--accent);
+}
+
+/* ── Log panel ────────────────────────────────────── */
+
+.cau-log-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cau-log-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-family: "Consolas", "Menlo", monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.cau-log-line {
+  color: var(--text-primary);
+}
+
+.cau-log-line--warn {
+  color: #f59e0b;
+}
+
+.cau-log-line--error {
+  color: #ef4444;
+}
+
+.cau-log-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+}
