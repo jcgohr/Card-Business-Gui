@@ -61,6 +61,12 @@ const SCHEMA: &str = "
         character    TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS fulfillments (
+        id          INTEGER PRIMARY KEY,
+        filename    TEXT NOT NULL,
+        imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS imports (
         id          INTEGER PRIMARY KEY,
         filename    TEXT NOT NULL,
@@ -118,6 +124,7 @@ pub fn init(path: &Path) -> rusqlite::Result<Connection> {
     let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN graded TEXT", []);
     let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN color TEXT", []);
     let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN character TEXT", []);
+    let _ = conn.execute("ALTER TABLE orders ADD COLUMN fulfillment_id INTEGER REFERENCES fulfillments(id)", []);
     Ok(conn)
 }
 
@@ -207,6 +214,16 @@ pub struct OrderRow {
 }
 
 #[derive(Serialize, Debug, Clone)]
+pub struct FulfillmentBatch {
+    pub id: i64,
+    pub filename: String,
+    pub imported_at: String,
+    pub order_count: i64,
+    pub new_order_count: i64,
+    pub item_count: i64,
+}
+
+#[derive(Serialize, Debug, Clone)]
 pub struct InventoryStats {
     pub total: i64,
     pub listed: i64,
@@ -265,6 +282,27 @@ fn strip_bom(data: Vec<u8>) -> Vec<u8> {
     } else {
         data
     }
+}
+
+/// Some eBay CSV exports prepend a BOM and then one or more lines of
+/// comma-separated empty fields before the real header row. Skip those
+/// so the next line becomes the header row the CSV reader sees.
+fn skip_empty_leading_rows(data: Vec<u8>) -> Vec<u8> {
+    let mut start = 0;
+    let mut i = 0;
+    while i < data.len() {
+        if data[i] == b'\n' {
+            let line = &data[start..i];
+            let line = if line.ends_with(b"\r") { &line[..line.len() - 1] } else { line };
+            if line.iter().all(|&b| matches!(b, b',' | b'\t' | b' ')) {
+                start = i + 1;
+            } else {
+                break;
+            }
+        }
+        i += 1;
+    }
+    if start > 0 { data[start..].to_vec() } else { data }
 }
 
 // ---------------------------------------------------------------------------
@@ -543,9 +581,18 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
 
 pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<ImportResult, String> {
     let raw = std::fs::read(path).map_err(|e| e.to_string())?;
-    let data = strip_bom(raw);
+    let data = skip_empty_leading_rows(strip_bom(raw));
+
+    // Auto-detect delimiter: eBay exports both comma- and tab-separated files.
+    // Count separators in the first line and use whichever appears more.
+    let first_line = data.split(|&b| b == b'\n').next().unwrap_or(&[]);
+    let tab_count   = first_line.iter().filter(|&&b| b == b'\t').count();
+    let comma_count = first_line.iter().filter(|&&b| b == b',').count();
+    let delimiter   = if tab_count > comma_count { b'\t' } else { b',' };
+
     let mut rdr = csv::ReaderBuilder::new()
         .flexible(true)
+        .delimiter(delimiter)
         .from_reader(data.as_slice());
 
     let headers: Vec<String> = rdr
@@ -555,31 +602,48 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
         .map(|s| s.to_string())
         .collect();
 
-    let c_order_number   = col(&headers, &["order number"]);
-    let c_sales_record   = col(&headers, &["sales record number"]);
-    let c_buyer_username = col(&headers, &["buyer username"]);
-    let c_buyer_name     = col(&headers, &["buyer name"]);
-    let c_ship_name      = col(&headers, &["ship to name"]);
-    let c_ship_addr1     = col(&headers, &["ship to address 1", "ship to address1"]);
-    let c_ship_addr2     = col(&headers, &["ship to address 2", "ship to address2"]);
-    let c_ship_city      = col(&headers, &["ship to city"]);
-    let c_ship_state     = col(&headers, &["ship to state"]);
-    let c_ship_zip       = col(&headers, &["ship to zip"]);
-    let c_ship_country   = col(&headers, &["ship to country"]);
-    let c_item_number    = col(&headers, &["item number"]);
-    let c_item_title     = col(&headers, &["item title"]);
-    let c_custom_label   = col(&headers, &["custom label"]);
-    let c_quantity       = col(&headers, &["quantity"]);
-    let c_sold_for       = col(&headers, &["sold for"]);
-    let c_sale_date      = col(&headers, &["sale date"]);
-    let c_paid_date      = col(&headers, &["paid on date"]);
-    let c_shipped_date   = col(&headers, &["shipped on date"]);
-    let c_tracking       = col(&headers, &["tracking number"]);
-    let c_transaction_id = col(&headers, &["transaction id"]);
+    // Order identifier: try several column name variants, fall back to sales record number
+    let c_order_number = col(&headers, &[
+        "order number", "order id", "orderid", "ebay order number", "order no",
+    ]);
+    let c_sales_record = col(&headers, &["sales record number", "sales record", "record number"]);
+    // c_order_key is the column we'll use to group rows into orders
+    let c_order_key    = c_order_number.or(c_sales_record);
 
-    if c_order_number.is_none() {
-        return Err("CSV is missing an Order Number column".into());
+    let c_buyer_username = col(&headers, &["buyer username", "buyer user id"]);
+    let c_buyer_name     = col(&headers, &["buyer name", "buyer full name"]);
+    let c_ship_name      = col(&headers, &["ship to name", "shipping name", "recipient name"]);
+    let c_ship_addr1     = col(&headers, &["ship to address 1", "ship to address1", "address 1", "address line 1"]);
+    let c_ship_addr2     = col(&headers, &["ship to address 2", "ship to address2", "address 2", "address line 2"]);
+    let c_ship_city      = col(&headers, &["ship to city", "city"]);
+    let c_ship_state     = col(&headers, &["ship to state", "state", "state or province"]);
+    let c_ship_zip       = col(&headers, &["ship to zip", "zip", "postal code", "zip code"]);
+    let c_ship_country   = col(&headers, &["ship to country", "country"]);
+    let c_item_number    = col(&headers, &["item number", "item id", "ebay item number"]);
+    let c_item_title     = col(&headers, &["item title", "title", "listing title"]);
+    let c_custom_label   = col(&headers, &["custom label", "custom label (sku)", "sku", "seller sku"]);
+    let c_quantity       = col(&headers, &["quantity", "qty"]);
+    let c_sold_for       = col(&headers, &["sold for", "total price", "sale price", "item price"]);
+    let c_sale_date      = col(&headers, &["sale date", "order date", "purchase date"]);
+    let c_paid_date      = col(&headers, &["paid on date", "paid date", "payment date"]);
+    let c_shipped_date   = col(&headers, &["shipped on date", "ship date", "shipped date"]);
+    let c_tracking       = col(&headers, &["tracking number", "tracking", "tracking #"]);
+    let c_transaction_id = col(&headers, &["transaction id", "transaction number"]);
+
+    if c_order_key.is_none() {
+        let sample = headers.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
+        return Err(format!(
+            "Could not find an order number column (tried: 'Order number', 'Order ID', 'Sales record number'). \
+             Columns found: {sample}"
+        ));
     }
+
+    // Create a fulfillment batch for this upload
+    conn.execute(
+        "INSERT INTO fulfillments (filename) VALUES (?1)",
+        params![filename],
+    ).map_err(|e| e.to_string())?;
+    let fulfillment_id: i64 = conn.last_insert_rowid();
 
     // order_number → (db_id, is_new)
     let mut order_map: HashMap<String, (i64, bool)> = HashMap::new();
@@ -588,7 +652,7 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
 
     for result in rdr.records() {
         let record = result.map_err(|e| e.to_string())?;
-        let order_number = get(&record, c_order_number);
+        let order_number = get(&record, c_order_key);
         if order_number.is_empty() {
             continue;
         }
@@ -602,8 +666,8 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
                     ebay_order_number, buyer_username, buyer_name,
                     ship_to_name, ship_to_address1, ship_to_address2,
                     ship_to_city, ship_to_state, ship_to_zip, ship_to_country,
-                    sale_date, paid_on_date, shipped_on_date, source_file
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                    sale_date, paid_on_date, shipped_on_date, source_file, fulfillment_id
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
                 params![
                     order_number,
                     opt(get(&record, c_buyer_username)),
@@ -619,6 +683,7 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
                     opt(get(&record, c_paid_date)),
                     opt(get(&record, c_shipped_date)),
                     filename,
+                    fulfillment_id,
                 ],
             ).map_err(|e| e.to_string())?;
 
@@ -659,11 +724,17 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
         let transaction_id = get(&record, c_transaction_id);
         let sales_record   = get(&record, c_sales_record);
 
-        // Try to link to an unlisted/listed inventory item with matching SKU
+        // Try to link to an inventory item: first by SKU, then by title
         let inventory_item_id: Option<i64> = if !custom_label.is_empty() {
             conn.query_row(
                 "SELECT id FROM inventory_items WHERE custom_label = ?1 AND status != 'sold' LIMIT 1",
                 params![custom_label],
+                |row| row.get(0),
+            ).ok()
+        } else if !item_title.is_empty() {
+            conn.query_row(
+                "SELECT id FROM inventory_items WHERE LOWER(TRIM(title)) = LOWER(TRIM(?1)) AND status != 'sold' LIMIT 1",
+                params![item_title],
                 |row| row.get(0),
             ).ok()
         } else {
@@ -921,7 +992,7 @@ pub fn delete_schema(conn: &Connection, id: i64) -> Result<(), String> {
 
 pub fn import_active_listings(conn: &Connection, path: &Path, filename: &str) -> Result<ActiveListingImportResult, String> {
     let raw = std::fs::read(path).map_err(|e| e.to_string())?;
-    let data = strip_bom(raw);
+    let data = skip_empty_leading_rows(strip_bom(raw));
     let mut rdr = csv::Reader::from_reader(data.as_slice());
 
     let headers: Vec<String> = rdr
@@ -1035,21 +1106,60 @@ pub struct PickSheetItem {
     pub quantity: i64,
 }
 
-pub fn get_pick_sheet(conn: &Connection) -> Result<Vec<PickSheetItem>, String> {
+pub fn get_fulfillments(conn: &Connection) -> Result<Vec<FulfillmentBatch>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.filename, f.imported_at,
+                COUNT(DISTINCT o.id) as order_count,
+                COUNT(DISTINCT CASE WHEN o.status = 'new' THEN o.id END) as new_order_count,
+                COUNT(oi.id) as item_count
+         FROM fulfillments f
+         LEFT JOIN orders o ON o.fulfillment_id = f.id
+         LEFT JOIN order_items oi ON oi.order_id = o.id
+         GROUP BY f.id
+         ORDER BY f.imported_at DESC",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(FulfillmentBatch {
+            id:              row.get(0)?,
+            filename:        row.get(1)?,
+            imported_at:     row.get(2)?,
+            order_count:     row.get(3)?,
+            new_order_count: row.get(4)?,
+            item_count:      row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows)
+}
+
+pub fn get_pick_sheet(conn: &Connection, fulfillment_id: i64) -> Result<Vec<PickSheetItem>, String> {
     let mut stmt = conn.prepare(
         "SELECT o.id, o.ebay_order_number,
                 COALESCE(NULLIF(o.ship_to_name,''), NULLIF(o.buyer_name,''), NULLIF(o.buyer_username,''), 'Unknown'),
-                COALESCE(oi.custom_label,''),
+                COALESCE(
+                    NULLIF(oi.custom_label,''),
+                    NULLIF(inv.custom_label,''),
+                    (SELECT NULLIF(i2.custom_label,'')
+                     FROM inventory_items i2
+                     WHERE i2.status != 'sold'
+                       AND LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
+                     LIMIT 1),
+                    ''
+                ),
                 COALESCE(oi.item_title,''),
                 oi.quantity
          FROM order_items oi
          JOIN orders o ON o.id = oi.order_id
-         WHERE o.status = 'new'
+         LEFT JOIN inventory_items inv ON inv.id = oi.inventory_item_id
+         WHERE o.status = 'new' AND o.fulfillment_id = ?1
          ORDER BY o.id, oi.id",
     ).map_err(|e| e.to_string())?;
 
     let rows: Vec<PickSheetItem> = stmt
-        .query_map([], |row| {
+        .query_map(params![fulfillment_id], |row| {
             Ok(PickSheetItem {
                 order_id:     row.get(0)?,
                 order_number: row.get(1)?,
@@ -1064,6 +1174,14 @@ pub fn get_pick_sheet(conn: &Connection) -> Result<Vec<PickSheetItem>, String> {
         .map_err(|e| e.to_string())?;
 
     Ok(rows)
+}
+
+pub fn clear_fulfillments(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "DELETE FROM order_items;
+         DELETE FROM orders;
+         DELETE FROM fulfillments;",
+    ).map_err(|e| e.to_string())
 }
 
 pub fn get_sync_status(conn: &Connection) -> Result<SyncStatus, String> {

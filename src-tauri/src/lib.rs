@@ -1181,11 +1181,28 @@ fn clear_active_listings(
 }
 
 #[tauri::command]
+fn get_fulfillments(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Vec<db::FulfillmentBatch>, String> {
+    let conn = state.db.lock().unwrap();
+    db::get_fulfillments(&conn)
+}
+
+#[tauri::command]
+fn clear_fulfillments(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    db::clear_fulfillments(&conn)
+}
+
+#[tauri::command]
 fn get_pick_sheet(
+    fulfillment_id: i64,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<Vec<db::PickSheetItem>, String> {
     let conn = state.db.lock().unwrap();
-    db::get_pick_sheet(&conn)
+    db::get_pick_sheet(&conn, fulfillment_id)
 }
 
 #[tauri::command]
@@ -1194,6 +1211,11 @@ fn get_sync_status(
 ) -> Result<db::SyncStatus, String> {
     let conn = state.db.lock().unwrap();
     db::get_sync_status(&conn)
+}
+
+#[tauri::command]
+fn print_webview(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.print().map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,7 +1264,10 @@ pub fn run() {
             get_active_listings_count,
             clear_active_listings,
             get_sync_status,
+            get_fulfillments,
+            clear_fulfillments,
             get_pick_sheet,
+            print_webview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
