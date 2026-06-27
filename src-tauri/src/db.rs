@@ -201,6 +201,8 @@ fn col(headers: &[String], candidates: &[&str]) -> Option<usize> {
         //   *    — required-field marker on standard columns (e.g. "*Title")
         let stripped = if lower.starts_with("*c:") {
             &lower[3..]
+        } else if lower.starts_with("c:") {
+            &lower[2..]
         } else if lower.starts_with("p:") {
             &lower[2..]
         } else if lower.starts_with('*') {
@@ -312,7 +314,7 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
         let rarity      = opt(get(&record, c_rarity));
         let finish      = opt(get(&record, c_finish));
         let specialty   = opt(get(&record, c_specialty));
-        let condition   = opt(get(&record, c_condition));
+        let condition   = opt(get(&record, c_condition).trim_end_matches(':').trim().to_string());
         let price       = parse_price(&get(&record, c_price));
         let pic_urls    = opt(get(&record, c_pic_urls));
         let illustrator = opt(get(&record, c_illustrator));
