@@ -16,6 +16,23 @@ const SCHEMA: &str = "
         created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS active_ebay_listings (
+        id                 INTEGER PRIMARY KEY,
+        ebay_item_number   TEXT NOT NULL,
+        title              TEXT NOT NULL,
+        title_normalized   TEXT NOT NULL,
+        custom_label       TEXT,
+        available_quantity INTEGER NOT NULL DEFAULT 0,
+        format             TEXT,
+        condition          TEXT,
+        start_price        REAL,
+        source_file        TEXT,
+        imported_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ebay_item_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ael_title_norm ON active_ebay_listings(title_normalized);
+
     CREATE TABLE IF NOT EXISTS inventory_items (
         id           INTEGER PRIMARY KEY,
         title        TEXT NOT NULL,
@@ -121,6 +138,14 @@ pub struct ImportResult {
     pub rows_imported: usize,
     pub already_existed: usize,
     pub ebay_csv_path: Option<String>,
+    pub deduped_count: usize,
+    pub revise_rows_added: usize,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ActiveListingImportResult {
+    pub rows_imported: usize,
+    pub rows_replaced: usize,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -290,14 +315,76 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
         .collect::<Result<_, _>>()
         .map_err(|e| e.to_string())?;
 
+    // Load active listings for duplicate detection: norm_title → (item_number, available_qty)
+    let active_listings: HashMap<String, (String, i64)> = {
+        let mut stmt = conn.prepare(
+            "SELECT title_normalized, ebay_item_number, available_quantity FROM active_ebay_listings"
+        ).map_err(|e| e.to_string())?;
+        let rows: Vec<(String, String, i64)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        rows.into_iter()
+            .map(|(norm, item_num, qty)| (norm, (item_num, qty)))
+            .collect()
+    };
+
+    let has_active = !active_listings.is_empty();
+
+    // Determine which extra columns we need to inject for Revise rows
+    let c_action_orig  = col(&headers, &["action"]);
+    let c_item_id_orig = col(&headers, &["itemid", "item id"]);
+    let c_qty_orig     = col(&headers, &["quantity"]);
+
+    let needs_action_col   = has_active && c_action_orig.is_none();
+    let needs_item_id_col  = has_active && c_item_id_orig.is_none();
+    let needs_qty_col      = has_active && c_qty_orig.is_none();
+
+    // *Action goes first (eBay File Exchange convention), then original headers, then ItemID/Quantity appended.
+    let mut out_headers: Vec<String> = Vec::new();
+    if needs_action_col   { out_headers.push("*Action".to_string()); }
+    out_headers.extend(headers.iter().cloned());
+    if needs_item_id_col  { out_headers.push("ItemID".to_string()); }
+    if needs_qty_col      { out_headers.push("*Quantity".to_string()); }
+
+    let c_action_out  = if has_active { col(&out_headers, &["action"]) }  else { None };
+    let c_item_id_out = if has_active { col(&out_headers, &["itemid", "item id"]) } else { None };
+    let c_qty_out     = if has_active { col(&out_headers, &["quantity"]) } else { None };
+    // When *Action was prepended, every original column index shifts by 1.
+    let orig_offset: usize = if needs_action_col { 1 } else { 0 };
+
+    // dedup_revise: norm_title → (item_number, avail_qty, new_sku_count, display_title)
+    let mut dedup_revise: HashMap<String, (String, i64, usize, String)> = HashMap::new();
+
     // Overwrite the original CSV with CustomLabel cleared and comma-separated SKUs
     // expanded into individual rows — ready to upload directly to eBay.
+    // Duplicate titles (matching active_ebay_listings) are pulled out and written
+    // as Revise rows that update the existing listing's quantity instead.
     {
         let mut wtr = csv::Writer::from_path(path).map_err(|e| e.to_string())?;
-        wtr.write_record(&headers).map_err(|e| e.to_string())?;
+        wtr.write_record(&out_headers).map_err(|e| e.to_string())?;
+
         for record in &all_records {
             let title = get(record, c_title);
             if title.is_empty() { continue; }
+            let norm_title = title.trim().to_lowercase();
+
+            if let Some((item_number, avail_qty)) = active_listings.get(&norm_title) {
+                // Count how many physical SKUs this row represents
+                let raw_label = get(record, c_custom_label);
+                let sku_count = if raw_label.is_empty() { 1 } else {
+                    raw_label.split(',').filter(|s| !s.trim().is_empty()).count().max(1)
+                };
+                let entry = dedup_revise
+                    .entry(norm_title)
+                    .or_insert((item_number.clone(), *avail_qty, 0, title.clone()));
+                entry.2 += sku_count;
+                continue; // don't emit a new-listing row for this title
+            }
+
             let raw_label = get(record, c_custom_label);
             let sku_count = if raw_label.is_empty() {
                 1
@@ -305,20 +392,54 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
                 raw_label.split(',').filter(|s| !s.trim().is_empty()).count().max(1)
             };
             let first_sku = raw_label.split(',').next().unwrap_or("").trim().to_string();
+
             for row_idx in 0..sku_count {
                 let label_val = if keep_first_sku && row_idx == 0 {
                     first_sku.clone()
                 } else {
                     String::new()
                 };
-                let fields: Vec<String> = record.iter().enumerate().map(|(i, s)| {
-                    if Some(i) == c_custom_label { label_val.clone() } else { s.to_string() }
-                }).collect();
+                let mut fields: Vec<String> = Vec::with_capacity(out_headers.len());
+                // Prepend Action=Add if we added the column (so it stays first)
+                if needs_action_col { fields.push("Add".to_string()); }
+                // Original record fields (clearing custom_label)
+                for (i, s) in record.iter().enumerate() {
+                    if Some(i) == c_custom_label {
+                        fields.push(label_val.clone());
+                    } else {
+                        fields.push(s.to_string());
+                    }
+                }
+                // If Action column already existed in original but is blank, set Add
+                if let Some(idx) = c_action_orig {
+                    if fields.get(idx).map(|s| s.is_empty()).unwrap_or(false) {
+                        fields[idx] = "Add".to_string();
+                    }
+                }
+                // Append remaining new columns
+                if needs_item_id_col  { fields.push(String::new()); }
+                if needs_qty_col      { fields.push("1".to_string()); }
                 wtr.write_record(&fields).map_err(|e| e.to_string())?;
             }
         }
+
+        // Append one Revise row per deduplicated title
+        for (_, (item_number, avail_qty, new_count, display_title)) in &dedup_revise {
+            let total_qty = avail_qty + *new_count as i64;
+            let mut fields: Vec<String> = vec![String::new(); out_headers.len()];
+            if let Some(idx) = c_action_out  { fields[idx] = "Revise".to_string(); }
+            if let Some(idx) = c_item_id_out { fields[idx] = item_number.clone(); }
+            if let Some(idx) = c_qty_out     { fields[idx] = total_qty.to_string(); }
+            // c_title is an index into the original headers; shift by orig_offset in output
+            if let Some(orig_idx) = c_title  { fields[orig_idx + orig_offset] = display_title.clone(); }
+            wtr.write_record(&fields).map_err(|e| e.to_string())?;
+        }
+
         wtr.flush().map_err(|e| e.to_string())?;
     }
+
+    let deduped_count: usize = dedup_revise.values().map(|v| v.2).sum();
+    let revise_rows_added: usize = dedup_revise.len();
 
     let mut rows_imported = 0usize;
 
@@ -407,7 +528,7 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
         params![filename, rows_imported as i64],
     ).map_err(|e| e.to_string())?;
 
-    Ok(ImportResult { rows_imported, already_existed: 0, ebay_csv_path: None })
+    Ok(ImportResult { rows_imported, already_existed: 0, ebay_csv_path: None, deduped_count, revise_rows_added })
 }
 
 // ---------------------------------------------------------------------------
@@ -577,7 +698,7 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
         params![filename, rows_imported as i64],
     ).map_err(|e| e.to_string())?;
 
-    Ok(ImportResult { rows_imported, already_existed, ebay_csv_path: None })
+    Ok(ImportResult { rows_imported, already_existed, ebay_csv_path: None, deduped_count: 0, revise_rows_added: 0 })
 }
 
 // ---------------------------------------------------------------------------
@@ -792,6 +913,132 @@ pub fn delete_schema(conn: &Connection, id: i64) -> Result<(), String> {
     conn.execute("DELETE FROM sku_schemas WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Active eBay listings store
+// ---------------------------------------------------------------------------
+
+pub fn import_active_listings(conn: &Connection, path: &Path, filename: &str) -> Result<ActiveListingImportResult, String> {
+    let raw = std::fs::read(path).map_err(|e| e.to_string())?;
+    let data = strip_bom(raw);
+    let mut rdr = csv::Reader::from_reader(data.as_slice());
+
+    let headers: Vec<String> = rdr
+        .headers()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let c_item_number = col(&headers, &["item number", "itemnumber", "item no"]);
+    let c_title       = col(&headers, &["title"]);
+    let c_custom_label = col(&headers, &["custom label (sku)", "custom label", "customlabelsku", "customlabel", "sku"]);
+    let c_avail_qty   = col(&headers, &["available quantity", "availablequantity", "quantity"]);
+    let c_format      = col(&headers, &["format"]);
+    let c_condition   = col(&headers, &["condition"]);
+    let c_start_price = col(&headers, &["start price", "startprice"]);
+
+    if c_item_number.is_none() {
+        return Err("CSV is missing an 'Item number' column — upload the eBay active listings report".into());
+    }
+    if c_title.is_none() {
+        return Err("CSV is missing a Title column".into());
+    }
+
+    let mut rows_imported = 0usize;
+
+    for result in rdr.records() {
+        let record = result.map_err(|e| e.to_string())?;
+        let item_number = get(&record, c_item_number);
+        let title = get(&record, c_title);
+        if item_number.is_empty() || title.is_empty() { continue; }
+
+        let title_normalized = title.trim().to_lowercase();
+        let custom_label = opt(get(&record, c_custom_label));
+        let avail_qty: i64 = get(&record, c_avail_qty)
+            .trim().parse::<f64>().map(|f| f as i64).unwrap_or(0);
+        let format    = opt(get(&record, c_format));
+        let condition = opt(get(&record, c_condition));
+        let start_price = parse_price(&get(&record, c_start_price));
+
+        conn.execute(
+            "INSERT INTO active_ebay_listings (
+                 ebay_item_number, title, title_normalized, custom_label,
+                 available_quantity, format, condition, start_price, source_file
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+             ON CONFLICT(ebay_item_number) DO UPDATE SET
+                 title              = excluded.title,
+                 title_normalized   = excluded.title_normalized,
+                 custom_label       = excluded.custom_label,
+                 available_quantity = excluded.available_quantity,
+                 format             = excluded.format,
+                 condition          = excluded.condition,
+                 start_price        = excluded.start_price,
+                 source_file        = excluded.source_file,
+                 imported_at        = CURRENT_TIMESTAMP",
+            params![
+                item_number,
+                title,
+                title_normalized,
+                custom_label,
+                avail_qty,
+                format,
+                condition,
+                start_price,
+                filename,
+            ],
+        ).map_err(|e| e.to_string())?;
+
+        rows_imported += 1;
+    }
+
+    conn.execute(
+        "INSERT INTO imports (filename, type, row_count) VALUES (?1, 'active_listings', ?2)",
+        params![filename, rows_imported as i64],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(ActiveListingImportResult { rows_imported, rows_replaced: 0 })
+}
+
+pub fn get_active_listings_count(conn: &Connection) -> Result<i64, String> {
+    conn.query_row("SELECT COUNT(*) FROM active_ebay_listings", [], |r| r.get(0))
+        .map_err(|e| e.to_string())
+}
+
+pub fn clear_active_listings(conn: &Connection) -> Result<(), String> {
+    conn.execute("DELETE FROM active_ebay_listings", [])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct SyncStatus {
+    /// When the active listings snapshot was last loaded (ISO datetime or empty string).
+    pub last_active_at: String,
+    /// How many inventory CSV imports have happened since the last active listings load.
+    /// Any value > 0 means the active listings snapshot may be missing recently uploaded cards.
+    pub inventory_imports_since_active: i64,
+}
+
+pub fn get_sync_status(conn: &Connection) -> Result<SyncStatus, String> {
+    let last_active_at: String = conn.query_row(
+        "SELECT COALESCE(MAX(imported_at), '') FROM imports WHERE type = 'active_listings'",
+        [],
+        |r| r.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    let inventory_imports_since_active: i64 = if last_active_at.is_empty() {
+        0
+    } else {
+        conn.query_row(
+            "SELECT COUNT(*) FROM imports WHERE type = 'inventory' AND imported_at > ?1",
+            params![last_active_at],
+            |r| r.get(0),
+        ).map_err(|e| e.to_string())?
+    };
+
+    Ok(SyncStatus { last_active_at, inventory_imports_since_active })
 }
 
 pub fn mark_packed(conn: &Connection, order_id: i64) -> Result<(), String> {

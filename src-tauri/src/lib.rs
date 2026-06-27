@@ -1150,6 +1150,45 @@ fn delete_inventory_item(
 }
 
 // ---------------------------------------------------------------------------
+// Active eBay listings commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn import_active_listings_csv(
+    state: tauri::State<'_, Arc<AppState>>,
+    path: String,
+) -> Result<db::ActiveListingImportResult, String> {
+    let conn = state.db.lock().unwrap();
+    let p = std::path::Path::new(&path);
+    let filename = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+    db::import_active_listings(&conn, p, &filename)
+}
+
+#[tauri::command]
+fn get_active_listings_count(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<i64, String> {
+    let conn = state.db.lock().unwrap();
+    db::get_active_listings_count(&conn)
+}
+
+#[tauri::command]
+fn clear_active_listings(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    db::clear_active_listings(&conn)
+}
+
+#[tauri::command]
+fn get_sync_status(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<db::SyncStatus, String> {
+    let conn = state.db.lock().unwrap();
+    db::get_sync_status(&conn)
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -1191,6 +1230,10 @@ pub fn run() {
             create_sku_schema,
             delete_sku_schema,
             preview_inventory_csv,
+            import_active_listings_csv,
+            get_active_listings_count,
+            clear_active_listings,
+            get_sync_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

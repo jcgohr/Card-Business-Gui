@@ -44,6 +44,18 @@ interface ImportResult {
   rows_imported: number;
   already_existed: number;
   ebay_csv_path: string | null;
+  deduped_count: number;
+  revise_rows_added: number;
+}
+
+interface ActiveListingImportResult {
+  rows_imported: number;
+  rows_replaced: number;
+}
+
+interface SyncStatus {
+  last_active_at: string;
+  inventory_imports_since_active: number;
 }
 
 interface SelBox { x: number; y: number; w: number; h: number }
@@ -61,12 +73,15 @@ function extractCollectionValue(item: InventoryItemRow): string | null {
 export default function InventoryManager() {
   const [items, setItems] = useState<InventoryItemRow[]>([]);
   const [stats, setStats] = useState<InventoryStats>({ total: 0, listed: 0, sold: 0, unlisted: 0 });
+  const [activeListingsCount, setActiveListingsCount] = useState<number>(0);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ last_active_at: "", inventory_imports_since_active: 0 });
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<number | null>(null);
   const [pendingImport, setPendingImport] = useState<{ path: string; filename: string } | null>(null);
+  const [confirmClearActive, setConfirmClearActive] = useState(false);
 
   // Detail panel
   const [detailItem, setDetailItem] = useState<InventoryItemRow | null>(null);
@@ -165,12 +180,16 @@ export default function InventoryManager() {
 
   const loadData = useCallback(async () => {
     try {
-      const [itemsResult, statsResult] = await Promise.all([
+      const [itemsResult, statsResult, activeCount, sync] = await Promise.all([
         invoke<InventoryItemRow[]>("get_inventory_items", { search, status: statusFilter }),
         invoke<InventoryStats>("get_inventory_stats"),
+        invoke<number>("get_active_listings_count"),
+        invoke<SyncStatus>("get_sync_status"),
       ]);
       setItems(itemsResult);
       setStats(statsResult);
+      setActiveListingsCount(activeCount);
+      setSyncStatus(sync);
       // Keep detail panel in sync if its item was updated
       setDetailItem((prev) => prev ? (itemsResult.find((i) => i.id === prev.id) ?? null) : null);
     } catch (e) {
@@ -254,15 +273,49 @@ export default function InventoryManager() {
         schemaId,
         keepFirstSku,
       });
-      setStatusMsg({
-        text: `Imported ${result.rows_imported} items. Original CSV updated for eBay upload.`,
-        kind: "ok",
-      });
+      let msg = `Imported ${result.rows_imported} items. CSV updated for eBay upload.`;
+      if (result.revise_rows_added > 0) {
+        msg += ` ${result.deduped_count} SKU${result.deduped_count !== 1 ? "s" : ""} matched existing listings — ${result.revise_rows_added} Revise row${result.revise_rows_added !== 1 ? "s" : ""} added instead of new listings.`;
+      }
+      setStatusMsg({ text: msg, kind: "ok" });
       await loadData();
     } catch (e) {
       setStatusMsg({ text: `Import failed: ${e}`, kind: "err" });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleImportActiveListings() {
+    try {
+      const path = await invoke<string | null>("select_file", {
+        filterName: "CSV Files",
+        filterExt: "csv",
+      });
+      if (!path) return;
+      setLoading(true);
+      setStatusMsg(null);
+      const result = await invoke<ActiveListingImportResult>("import_active_listings_csv", { path });
+      setStatusMsg({
+        text: `Active listings loaded: ${result.rows_imported} listings stored. Duplicate detection is now active.`,
+        kind: "ok",
+      });
+      await loadData();
+    } catch (e) {
+      setStatusMsg({ text: `Active listings import failed: ${e}`, kind: "err" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleClearActiveListings() {
+    setConfirmClearActive(false);
+    try {
+      await invoke("clear_active_listings");
+      setStatusMsg({ text: "Active listings cleared. Duplicate detection disabled.", kind: "ok" });
+      await loadData();
+    } catch (e) {
+      setStatusMsg({ text: `Clear failed: ${e}`, kind: "err" });
     }
   }
 
@@ -327,9 +380,45 @@ export default function InventoryManager() {
 
       <div className="inv-header">
         <h2 className="inv-title">Inventory</h2>
-        <button className="inv-import-btn" onClick={handleImport} disabled={loading}>
-          {loading ? "Importing…" : "Import CSV"}
-        </button>
+        <div className="inv-header-actions">
+          <div className="inv-active-listings">
+            {activeListingsCount > 0 ? (
+              <>
+                <span
+                  className="inv-active-badge"
+                  title="Duplicate detection active — uploads will be checked against these listings"
+                >
+                  {activeListingsCount} active listings
+                </span>
+                {syncStatus.inventory_imports_since_active > 0 && (
+                  <span
+                    className="inv-active-stale"
+                    title={`${syncStatus.inventory_imports_since_active} listing CSV${syncStatus.inventory_imports_since_active !== 1 ? "s" : ""} uploaded since active listings were refreshed — duplicate listings may be created`}
+                  >
+                    {syncStatus.inventory_imports_since_active} upload{syncStatus.inventory_imports_since_active !== 1 ? "s" : ""} since refresh
+                  </span>
+                )}
+                {confirmClearActive ? (
+                  <>
+                    <span className="inv-active-clear-warn">Clear?</span>
+                    <button className="inv-active-clear-yes" onClick={handleClearActiveListings}>Yes</button>
+                    <button className="inv-active-clear-no" onClick={() => setConfirmClearActive(false)}>No</button>
+                  </>
+                ) : (
+                  <button className="inv-active-clear-btn" onClick={() => setConfirmClearActive(true)} title="Remove stored active listings">✕</button>
+                )}
+              </>
+            ) : (
+              <span className="inv-active-none" title="Import your eBay active listings report to enable duplicate detection">No active listings</span>
+            )}
+            <button className="inv-active-import-btn" onClick={handleImportActiveListings} disabled={loading}>
+              {activeListingsCount > 0 ? "Refresh Active" : "Load Active Listings"}
+            </button>
+          </div>
+          <button className="inv-import-btn" onClick={handleImport} disabled={loading}>
+            {loading ? "Importing…" : "Import CSV"}
+          </button>
+        </div>
       </div>
 
       {statusMsg && (

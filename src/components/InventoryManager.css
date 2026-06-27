@@ -23,10 +23,78 @@
   color: var(--text-primary);
 }
 
+.inv-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .inv-import-btn {
   padding: 0.45em 1.1em;
   font-size: 0.875rem;
 }
+
+/* ── Active listings dedup bar ───────────────────────── */
+
+.inv-active-listings {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35em 0.75em;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.inv-active-badge {
+  color: var(--accent);
+  font-weight: 500;
+  cursor: default;
+}
+
+.inv-active-none {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.inv-active-stale {
+  color: #f59e0b;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: default;
+}
+
+.inv-active-import-btn {
+  padding: 0.25em 0.7em;
+  font-size: 0.78rem;
+}
+
+.inv-active-clear-btn {
+  padding: 0.1em 0.4em;
+  font-size: 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.inv-active-clear-btn:hover { color: #f87171; }
+
+.inv-active-clear-warn {
+  color: #f87171;
+  font-size: 0.78rem;
+}
+
+.inv-active-clear-yes,
+.inv-active-clear-no {
+  padding: 0.2em 0.5em;
+  font-size: 0.78rem;
+}
+
+.inv-active-clear-yes { color: #f87171; }
+.inv-active-clear-no  { color: var(--text-muted); }
 
 /* ── Status message ──────────────────────────────────── */
 
