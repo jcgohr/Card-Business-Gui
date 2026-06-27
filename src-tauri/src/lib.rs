@@ -1197,6 +1197,15 @@ fn clear_fulfillments(
 }
 
 #[tauri::command]
+fn get_pack_orders(
+    fulfillment_id: i64,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Vec<db::PackOrder>, String> {
+    let conn = state.db.lock().unwrap();
+    db::get_pack_orders(&conn, fulfillment_id)
+}
+
+#[tauri::command]
 fn get_pick_sheet(
     fulfillment_id: i64,
     state: tauri::State<'_, Arc<AppState>>,
@@ -1266,6 +1275,7 @@ pub fn run() {
             get_sync_status,
             get_fulfillments,
             clear_fulfillments,
+            get_pack_orders,
             get_pick_sheet,
             print_webview,
         ])

@@ -214,6 +214,20 @@ pub struct OrderRow {
 }
 
 #[derive(Serialize, Debug, Clone)]
+pub struct PackItem {
+    pub custom_label: String,
+    pub item_title: String,
+    pub pic_urls: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct PackOrder {
+    pub order_id: i64,
+    pub recipient: String,
+    pub items: Vec<PackItem>,
+}
+
+#[derive(Serialize, Debug, Clone)]
 pub struct FulfillmentBatch {
     pub id: i64,
     pub filename: String,
@@ -1182,6 +1196,60 @@ pub fn clear_fulfillments(conn: &Connection) -> Result<(), String> {
          DELETE FROM orders;
          DELETE FROM fulfillments;",
     ).map_err(|e| e.to_string())
+}
+
+pub fn get_pack_orders(conn: &Connection, fulfillment_id: i64) -> Result<Vec<PackOrder>, String> {
+    let mut order_stmt = conn.prepare(
+        "SELECT o.id,
+                COALESCE(NULLIF(o.ship_to_name,''), NULLIF(o.buyer_name,''), NULLIF(o.buyer_username,''), 'Unknown')
+         FROM orders o
+         WHERE o.fulfillment_id = ?1 AND o.status = 'new'
+         ORDER BY o.id",
+    ).map_err(|e| e.to_string())?;
+
+    let orders: Vec<(i64, String)> = order_stmt
+        .query_map(params![fulfillment_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for (order_id, recipient) in orders {
+        let mut item_stmt = conn.prepare(
+            "SELECT COALESCE(NULLIF(oi.custom_label,''), NULLIF(inv.custom_label,''),
+                             (SELECT NULLIF(i2.custom_label,'') FROM inventory_items i2
+                              WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
+                                AND i2.status != 'sold' LIMIT 1), ''),
+                    COALESCE(oi.item_title,''),
+                    COALESCE(
+                        NULLIF(inv.pic_urls,''),
+                        (SELECT NULLIF(i2.pic_urls,'') FROM inventory_items i2
+                         WHERE i2.custom_label = oi.custom_label AND oi.custom_label != '' LIMIT 1),
+                        (SELECT NULLIF(i2.pic_urls,'') FROM inventory_items i2
+                         WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title)) LIMIT 1),
+                        ''
+                    )
+             FROM order_items oi
+             LEFT JOIN inventory_items inv ON inv.id = oi.inventory_item_id
+             WHERE oi.order_id = ?1",
+        ).map_err(|e| e.to_string())?;
+
+        let items: Vec<PackItem> = item_stmt
+            .query_map(params![order_id], |row| {
+                Ok(PackItem {
+                    custom_label: row.get(0)?,
+                    item_title:   row.get(1)?,
+                    pic_urls:     row.get(2)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+
+        result.push(PackOrder { order_id, recipient, items });
+    }
+
+    Ok(result)
 }
 
 pub fn get_sync_status(conn: &Connection) -> Result<SyncStatus, String> {
