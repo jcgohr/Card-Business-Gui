@@ -133,6 +133,7 @@
   border-bottom: 1px solid var(--border);
   color: var(--text-primary);
   vertical-align: middle;
+  user-select: none;
 }
 
 .inv-table tbody tr:last-child td {
@@ -241,6 +242,147 @@
   color: var(--text-muted);
   padding: 2rem;
   font-size: 0.875rem;
+}
+
+/* ── Selection checkbox column ───────────────────────── */
+
+.inv-th-check,
+.inv-cell-check {
+  width: 36px;
+  text-align: center;
+  padding: 0.25rem 0.4rem !important;
+}
+
+/* ── Selected row highlight ──────────────────────────── */
+
+tr.inv-row--selected td {
+  background: rgba(74, 222, 128, 0.07) !important;
+}
+
+tr.inv-row--selected:hover td {
+  background: rgba(74, 222, 128, 0.12) !important;
+}
+
+/* ── Rubber-band selection rectangle ─────────────────── */
+
+.inv-sel-rect {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  border: 1px solid var(--accent);
+  background: rgba(74, 222, 128, 0.08);
+  border-radius: 2px;
+}
+
+/* ── Bulk action bar ─────────────────────────────────── */
+
+.inv-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.inv-bulk-count {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.inv-bulk-warn {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #f87171;
+  white-space: nowrap;
+}
+
+.inv-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.inv-bulk-btn {
+  padding: 0.3em 0.8em;
+  font-size: 0.8rem;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+.inv-bulk-btn:hover {
+  background: var(--bg-surface);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.inv-bulk-btn--danger {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.inv-bulk-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: #f87171;
+  color: #fca5a5;
+}
+
+.inv-bulk-confirm-yes {
+  padding: 0.3em 0.9em;
+  font-size: 0.8rem;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #f87171;
+  box-shadow: none;
+}
+
+.inv-bulk-confirm-yes:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: #f87171;
+  color: #fca5a5;
+}
+
+.inv-bulk-confirm-no {
+  padding: 0.3em 0.9em;
+  font-size: 0.8rem;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.inv-bulk-confirm-no:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.inv-bulk-clear {
+  margin-left: auto;
+  padding: 0.3em 0.7em;
+  font-size: 0.78rem;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.inv-bulk-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border-color: var(--border);
+}
+
+/* ── Clickable rows ──────────────────────────────────── */
+
+.inv-table tbody tr {
+  cursor: pointer;
 }
 
 /* ── Badges ──────────────────────────────────────────── */

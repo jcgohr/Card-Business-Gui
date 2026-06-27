@@ -255,35 +255,67 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
             continue;
         }
 
-        conn.execute(
-            "INSERT INTO inventory_items (
-                title, card_name, card_number, set_name, rarity, finish, specialty,
-                condition, price, pic_urls, illustrator, year, stage, tcg,
-                custom_label, description, source_file, sku_schema_id
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
-            params![
-                title,
-                opt(get(&record, c_card_name)),
-                opt(get(&record, c_card_number)),
-                opt(get(&record, c_set_name)),
-                opt(get(&record, c_rarity)),
-                opt(get(&record, c_finish)),
-                opt(get(&record, c_specialty)),
-                opt(get(&record, c_condition)),
-                parse_price(&get(&record, c_price)),
-                opt(get(&record, c_pic_urls)),
-                opt(get(&record, c_illustrator)),
-                opt(get(&record, c_year)),
-                opt(get(&record, c_stage)),
-                opt(get(&record, c_tcg)),
-                opt(get(&record, c_custom_label)),
-                opt(get(&record, c_description)),
-                filename,
-                schema_id,
-            ],
-        ).map_err(|e| e.to_string())?;
+        // Split comma-separated custom labels — one listing may cover multiple
+        // physical cards each with their own SKU (e.g. "fb1-1-1-3, fb1-1-1-4").
+        // Each SKU becomes its own inventory row so it can be fulfilled individually.
+        let raw_label = get(&record, c_custom_label);
+        let skus: Vec<Option<String>> = if raw_label.is_empty() {
+            vec![None]
+        } else {
+            let parts: Vec<String> = raw_label
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            parts.into_iter().map(Some).collect()
+        };
 
-        rows_imported += 1;
+        // Shared fields for this listing row
+        let card_name   = opt(get(&record, c_card_name));
+        let card_number = opt(get(&record, c_card_number));
+        let set_name    = opt(get(&record, c_set_name));
+        let rarity      = opt(get(&record, c_rarity));
+        let finish      = opt(get(&record, c_finish));
+        let specialty   = opt(get(&record, c_specialty));
+        let condition   = opt(get(&record, c_condition));
+        let price       = parse_price(&get(&record, c_price));
+        let pic_urls    = opt(get(&record, c_pic_urls));
+        let illustrator = opt(get(&record, c_illustrator));
+        let year        = opt(get(&record, c_year));
+        let stage       = opt(get(&record, c_stage));
+        let tcg         = opt(get(&record, c_tcg));
+        let description = opt(get(&record, c_description));
+
+        for sku in skus {
+            conn.execute(
+                "INSERT INTO inventory_items (
+                    title, card_name, card_number, set_name, rarity, finish, specialty,
+                    condition, price, pic_urls, illustrator, year, stage, tcg,
+                    custom_label, description, source_file, sku_schema_id
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+                params![
+                    title,
+                    card_name,
+                    card_number,
+                    set_name,
+                    rarity,
+                    finish,
+                    specialty,
+                    condition,
+                    price,
+                    pic_urls,
+                    illustrator,
+                    year,
+                    stage,
+                    tcg,
+                    sku,
+                    description,
+                    filename,
+                    schema_id,
+                ],
+            ).map_err(|e| e.to_string())?;
+            rows_imported += 1;
+        }
     }
 
     conn.execute(

@@ -996,9 +996,12 @@ fn preview_inventory_csv(path: String) -> Result<Vec<String>, String> {
         if samples.len() >= 8 { break; }
         if let Ok(record) = result {
             if let Some(val) = record.get(col_idx) {
-                let val = val.trim().to_string();
-                if !val.is_empty() && !samples.contains(&val) {
-                    samples.push(val);
+                for sku in val.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    if samples.len() >= 8 { break; }
+                    let sku = sku.to_string();
+                    if !samples.contains(&sku) {
+                        samples.push(sku);
+                    }
                 }
             }
         }
@@ -1092,6 +1095,42 @@ fn get_inventory_stats(
 }
 
 #[tauri::command]
+fn bulk_delete_inventory_items(
+    state: tauri::State<'_, Arc<AppState>>,
+    ids: Vec<i64>,
+) -> Result<usize, String> {
+    let conn = state.db.lock().unwrap();
+    let mut count = 0usize;
+    for id in &ids {
+        conn.execute(
+            "UPDATE order_items SET inventory_item_id = NULL WHERE inventory_item_id = ?1",
+            rusqlite::params![id],
+        ).map_err(|e| e.to_string())?;
+        count += conn.execute(
+            "DELETE FROM inventory_items WHERE id = ?1",
+            rusqlite::params![id],
+        ).map_err(|e| e.to_string())?;
+    }
+    Ok(count)
+}
+
+#[tauri::command]
+fn bulk_update_inventory_status(
+    state: tauri::State<'_, Arc<AppState>>,
+    ids: Vec<i64>,
+    status: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    for id in &ids {
+        conn.execute(
+            "UPDATE inventory_items SET status = ?1 WHERE id = ?2",
+            rusqlite::params![status, id],
+        ).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn delete_inventory_item(
     state: tauri::State<'_, Arc<AppState>>,
     id: i64,
@@ -1145,6 +1184,8 @@ pub fn run() {
             mark_order_packed,
             get_inventory_stats,
             delete_inventory_item,
+            bulk_delete_inventory_items,
+            bulk_update_inventory_status,
             get_sku_schemas,
             create_sku_schema,
             delete_sku_schema,
