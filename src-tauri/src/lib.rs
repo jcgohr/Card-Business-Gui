@@ -1,3 +1,5 @@
+mod db;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -118,13 +120,15 @@ impl Default for WatcherState {
 pub struct AppState {
     auth: Mutex<AuthTokens>,
     watcher: Mutex<WatcherState>,
+    db: Mutex<rusqlite::Connection>,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
+impl AppState {
+    fn new(db_conn: rusqlite::Connection) -> Self {
         Self {
             auth: Mutex::new(AuthTokens::default()),
             watcher: Mutex::new(WatcherState::default()),
+            db: Mutex::new(db_conn),
         }
     }
 }
@@ -939,10 +943,170 @@ async fn process_all_subfolders(
 }
 
 #[tauri::command]
-async fn test_auth(config: Config) -> Result<String, String> {
-    let state = Arc::new(AppState::default());
+async fn test_auth(
+    state: tauri::State<'_, Arc<AppState>>,
+    config: Config,
+) -> Result<String, String> {
     get_token(&state, &config.email, &config.password).await?;
     Ok("Authentication successful".into())
+}
+
+// ---------------------------------------------------------------------------
+// Inventory & Fulfillment commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn select_file(filter_name: String, filter_ext: String) -> Option<String> {
+    rfd::AsyncFileDialog::new()
+        .set_title("Select File")
+        .add_filter(&filter_name, &[filter_ext.as_str()])
+        .pick_file()
+        .await
+        .map(|f| f.path().to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn preview_inventory_csv(path: String) -> Result<Vec<String>, String> {
+    let raw = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let data = if raw.starts_with(&[0xEF, 0xBB, 0xBF]) { raw[3..].to_vec() } else { raw };
+
+    let mut rdr = csv::Reader::from_reader(data.as_slice());
+    let headers: Vec<String> = rdr
+        .headers()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let norm = |s: &str| -> String {
+        s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
+    };
+    let normed: Vec<String> = headers.iter().map(|h| norm(h)).collect();
+    let candidates = ["customlabelsku", "customlabel", "sku"];
+    let col_idx = candidates
+        .iter()
+        .find_map(|c| normed.iter().position(|h| h == c));
+
+    let Some(col_idx) = col_idx else {
+        return Ok(vec![]);
+    };
+
+    let mut samples: Vec<String> = Vec::new();
+    for result in rdr.records() {
+        if samples.len() >= 8 { break; }
+        if let Ok(record) = result {
+            if let Some(val) = record.get(col_idx) {
+                let val = val.trim().to_string();
+                if !val.is_empty() && !samples.contains(&val) {
+                    samples.push(val);
+                }
+            }
+        }
+    }
+
+    Ok(samples)
+}
+
+#[tauri::command]
+fn import_inventory_csv(
+    state: tauri::State<'_, Arc<AppState>>,
+    path: String,
+    schema_id: Option<i64>,
+) -> Result<db::ImportResult, String> {
+    let conn = state.db.lock().unwrap();
+    let p = std::path::Path::new(&path);
+    let filename = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+    db::import_inventory(&conn, p, &filename, schema_id)
+}
+
+#[tauri::command]
+fn get_sku_schemas(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<db::SkuSchema>, String> {
+    let conn = state.db.lock().unwrap();
+    db::get_schemas(&conn)
+}
+
+#[tauri::command]
+fn create_sku_schema(
+    state: tauri::State<'_, Arc<AppState>>,
+    name: String,
+    segment_labels: Vec<String>,
+) -> Result<db::SkuSchema, String> {
+    let conn = state.db.lock().unwrap();
+    db::create_schema(&conn, &name, &segment_labels)
+}
+
+#[tauri::command]
+fn delete_sku_schema(
+    state: tauri::State<'_, Arc<AppState>>,
+    id: i64,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    db::delete_schema(&conn, id)
+}
+
+#[tauri::command]
+fn import_orders_csv(
+    state: tauri::State<'_, Arc<AppState>>,
+    path: String,
+) -> Result<db::ImportResult, String> {
+    let conn = state.db.lock().unwrap();
+    let p = std::path::Path::new(&path);
+    let filename = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+    db::import_orders(&conn, p, &filename)
+}
+
+#[tauri::command]
+fn get_inventory_items(
+    state: tauri::State<'_, Arc<AppState>>,
+    search: String,
+    status: String,
+) -> Result<Vec<db::InventoryItemRow>, String> {
+    let conn = state.db.lock().unwrap();
+    db::query_inventory(&conn, &search, &status)
+}
+
+#[tauri::command]
+fn get_orders_with_items(
+    state: tauri::State<'_, Arc<AppState>>,
+    status: String,
+) -> Result<Vec<db::OrderRow>, String> {
+    let conn = state.db.lock().unwrap();
+    db::query_orders(&conn, &status)
+}
+
+#[tauri::command]
+fn mark_order_packed(
+    state: tauri::State<'_, Arc<AppState>>,
+    order_id: i64,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    db::mark_packed(&conn, order_id)
+}
+
+#[tauri::command]
+fn get_inventory_stats(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<db::InventoryStats, String> {
+    let conn = state.db.lock().unwrap();
+    db::inventory_stats(&conn)
+}
+
+#[tauri::command]
+fn delete_inventory_item(
+    state: tauri::State<'_, Arc<AppState>>,
+    id: i64,
+) -> Result<(), String> {
+    let conn = state.db.lock().unwrap();
+    // Clear FK references in order_items before deleting
+    conn.execute(
+        "UPDATE order_items SET inventory_item_id = NULL WHERE inventory_item_id = ?1",
+        rusqlite::params![id],
+    ).map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM inventory_items WHERE id = ?1",
+        rusqlite::params![id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -951,21 +1115,40 @@ async fn test_auth(config: Config) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let state = Arc::new(AppState::default());
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(state)
+        .setup(|app| {
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let db_path = data_dir.join("inventory.db");
+            let conn = db::init(&db_path)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let state = Arc::new(AppState::new(conn));
+            app.manage(state);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_config,
             save_config,
             get_sku_preview,
             select_directory,
+            select_file,
             start_watcher,
             stop_watcher,
             process_folder_manual,
             process_all_subfolders,
             test_auth,
+            import_inventory_csv,
+            import_orders_csv,
+            get_inventory_items,
+            get_orders_with_items,
+            mark_order_packed,
+            get_inventory_stats,
+            delete_inventory_item,
+            get_sku_schemas,
+            create_sku_schema,
+            delete_sku_schema,
+            preview_inventory_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -46,6 +46,7 @@ html, body, #root {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  padding-top: 56px;
 }
 
 /* ── Legacy layout helpers ────────────────────────── */

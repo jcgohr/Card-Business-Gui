@@ -18,6 +18,13 @@ const sections: SidebarSection[] = [
       { id: "card-uploader-auto-upload", label: "CardUploader AutoUpload" },
     ],
   },
+  {
+    title: "Inventory & Fulfillment",
+    items: [
+      { id: "inventory",    label: "Inventory" },
+      { id: "fulfillment",  label: "Fulfillment" },
+    ],
+  },
 ];
 
 interface Props {

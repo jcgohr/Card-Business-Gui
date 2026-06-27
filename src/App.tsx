@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 import Sidebar from "./components/Sidebar";
 import CardUploaderAutoUpload from "./components/CardUploaderAutoUpload";
+import InventoryManager from "./components/InventoryManager";
+import FulfillmentManager from "./components/FulfillmentManager";
 
 const LOG_CAP = 500;
 
@@ -69,6 +71,8 @@ function App() {
             externalSection={currentSection}
           />
         )}
+        {activeView === "inventory" && <InventoryManager />}
+        {activeView === "fulfillment" && <FulfillmentManager />}
       </main>
     </div>
   );

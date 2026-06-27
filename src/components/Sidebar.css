@@ -68,7 +68,7 @@
 /* ── Sidebar Header ───────────────────────────────── */
 
 .sidebar-header {
-  padding: 20px 20px 16px;
+  padding: 20px 20px 16px 64px;
   border-bottom: 1px solid var(--border);
 }
 
