@@ -33,10 +33,15 @@ const SCHEMA: &str = "
         stage        TEXT,
         tcg          TEXT,
         custom_label TEXT,
+        language     TEXT,
         status       TEXT NOT NULL DEFAULT 'listed',
         source_file  TEXT,
         imported_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-        description  TEXT
+        description  TEXT,
+        card_type    TEXT,
+        graded       TEXT,
+        color        TEXT,
+        character    TEXT
     );
 
     CREATE TABLE IF NOT EXISTS imports (
@@ -89,11 +94,13 @@ const SCHEMA: &str = "
 pub fn init(path: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;
     conn.execute_batch(SCHEMA)?;
-    // Migration: add sku_schema_id to existing inventory_items tables
-    let _ = conn.execute(
-        "ALTER TABLE inventory_items ADD COLUMN sku_schema_id INTEGER REFERENCES sku_schemas(id)",
-        [],
-    );
+    // Migrations for columns added after initial release
+    let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN sku_schema_id INTEGER REFERENCES sku_schemas(id)", []);
+    let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN language TEXT", []);
+    let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN card_type TEXT", []);
+    let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN graded TEXT", []);
+    let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN color TEXT", []);
+    let _ = conn.execute("ALTER TABLE inventory_items ADD COLUMN character TEXT", []);
     Ok(conn)
 }
 
@@ -123,9 +130,16 @@ pub struct InventoryItemRow {
     pub card_number: String,
     pub set_name: String,
     pub rarity: String,
+    pub finish: String,
+    pub specialty: String,
     pub condition: String,
     pub price: Option<f64>,
     pub tcg: String,
+    pub language: String,
+    pub illustrator: String,
+    pub year: String,
+    pub stage: String,
+    pub description: String,
     pub custom_label: String,
     pub status: String,
     pub imported_at: String,
@@ -133,6 +147,10 @@ pub struct InventoryItemRow {
     pub schema_name: String,
     pub segment_labels: Vec<String>,
     pub pic_urls: Vec<String>,
+    pub card_type: String,
+    pub graded: String,
+    pub color: String,
+    pub character: String,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -176,10 +194,21 @@ pub struct InventoryStats {
 
 fn col(headers: &[String], candidates: &[&str]) -> Option<usize> {
     let norm = |s: &str| -> String {
-        s.to_lowercase()
-            .chars()
-            .filter(|c| c.is_alphanumeric())
-            .collect()
+        let lower = s.to_lowercase();
+        // Strip eBay column prefixes before comparing:
+        //   *C:  — category-specific item specifics (e.g. "*C:Card Name")
+        //   P:   — item specifics in File Exchange format (e.g. "P:Card Name")
+        //   *    — required-field marker on standard columns (e.g. "*Title")
+        let stripped = if lower.starts_with("*c:") {
+            &lower[3..]
+        } else if lower.starts_with("p:") {
+            &lower[2..]
+        } else if lower.starts_with('*') {
+            &lower[1..]
+        } else {
+            &lower
+        };
+        stripped.chars().filter(|c| c.is_alphanumeric()).collect()
     };
     let normed: Vec<String> = headers.iter().map(|h| norm(h)).collect();
     candidates
@@ -226,22 +255,27 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
         .map(|s| s.to_string())
         .collect();
 
-    let c_title       = col(&headers, &["title", "*title", "item title"]);
-    let c_card_name   = col(&headers, &["card name", "cardname"]);
-    let c_card_number = col(&headers, &["card number", "cardnumber", "number"]);
-    let c_set_name    = col(&headers, &["set name", "setname", "set"]);
-    let c_rarity      = col(&headers, &["rarity"]);
-    let c_finish      = col(&headers, &["finish"]);
-    let c_specialty   = col(&headers, &["specialty"]);
-    let c_condition   = col(&headers, &["condition", "*condition", "condition name"]);
-    let c_price       = col(&headers, &["start price", "*start price", "price", "buy it now price"]);
-    let c_pic_urls    = col(&headers, &["pic url", "pic urls", "picurl", "picture url", "gallery url"]);
-    let c_illustrator = col(&headers, &["illustrator"]);
-    let c_year        = col(&headers, &["year"]);
-    let c_stage       = col(&headers, &["stage"]);
-    let c_tcg         = col(&headers, &["tcg"]);
-    let c_custom_label = col(&headers, &["custom label (sku)", "custom label", "customlabelsku", "customlabel", "sku"]);
-    let c_description = col(&headers, &["description", "*description"]);
+    let c_title        = col(&headers, &["title", "item title"]);
+    let c_card_name    = col(&headers, &["card name", "cardname"]);
+    let c_card_number  = col(&headers, &["card number", "cardnumber", "number", "card no", "cardno"]);
+    let c_set_name     = col(&headers, &["set name", "setname", "set name/number", "setnamenumber", "set"]);
+    let c_rarity       = col(&headers, &["rarity"]);
+    let c_finish       = col(&headers, &["finish"]);
+    let c_specialty    = col(&headers, &["specialty", "speciality"]);
+    let c_condition    = col(&headers, &["condition", "condition name", "conditionname"]);
+    let c_price        = col(&headers, &["start price", "buy it now price", "buyitnowprice", "price"]);
+    let c_pic_urls     = col(&headers, &["pic url", "pic urls", "picurl", "picture url", "gallery url", "photo url"]);
+    let c_illustrator  = col(&headers, &["illustrator", "artist"]);
+    let c_year         = col(&headers, &["year", "release year"]);
+    let c_stage        = col(&headers, &["stage", "evolution stage"]);
+    let c_tcg          = col(&headers, &["tcg", "game", "card game"]);
+    let c_language     = col(&headers, &["language", "lang", "edition"]);
+    let c_custom_label = col(&headers, &["custom label (sku)", "custom label", "customlabelsku", "customlabel", "sku", "seller sku"]);
+    let c_description  = col(&headers, &["description"]);
+    let c_card_type    = col(&headers, &["card type", "cardtype"]);
+    let c_graded       = col(&headers, &["graded"]);
+    let c_color        = col(&headers, &["attribute/mtg:colour", "colour", "color", "attribute"]);
+    let c_character    = col(&headers, &["character"]);
 
     if c_title.is_none() {
         return Err("CSV is missing a Title column".into());
@@ -285,15 +319,21 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
         let year        = opt(get(&record, c_year));
         let stage       = opt(get(&record, c_stage));
         let tcg         = opt(get(&record, c_tcg));
+        let language    = opt(get(&record, c_language));
         let description = opt(get(&record, c_description));
+        let card_type   = opt(get(&record, c_card_type));
+        let graded      = opt(get(&record, c_graded));
+        let color       = opt(get(&record, c_color));
+        let character   = opt(get(&record, c_character));
 
         for sku in skus {
             conn.execute(
                 "INSERT INTO inventory_items (
                     title, card_name, card_number, set_name, rarity, finish, specialty,
                     condition, price, pic_urls, illustrator, year, stage, tcg,
-                    custom_label, description, source_file, sku_schema_id
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+                    language, custom_label, description, source_file, sku_schema_id,
+                    card_type, graded, color, character
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
                 params![
                     title,
                     card_name,
@@ -309,10 +349,15 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
                     year,
                     stage,
                     tcg,
+                    language,
                     sku,
                     description,
                     filename,
                     schema_id,
+                    card_type,
+                    graded,
+                    color,
+                    character,
                 ],
             ).map_err(|e| e.to_string())?;
             rows_imported += 1;
@@ -512,11 +557,16 @@ pub fn query_inventory(
             "SELECT i.id, i.title,
                 COALESCE(i.card_name,''), COALESCE(i.card_number,''),
                 COALESCE(i.set_name,''), COALESCE(i.rarity,''),
+                COALESCE(i.finish,''), COALESCE(i.specialty,''),
                 COALESCE(i.condition,''), i.price,
-                COALESCE(i.tcg,''), COALESCE(i.custom_label,''),
-                i.status, i.imported_at,
+                COALESCE(i.tcg,''), COALESCE(i.language,''),
+                COALESCE(i.illustrator,''), COALESCE(i.year,''),
+                COALESCE(i.stage,''), COALESCE(i.description,''),
+                COALESCE(i.custom_label,''), i.status, i.imported_at,
                 i.sku_schema_id, COALESCE(s.name,''), COALESCE(s.segment_labels,'[]'),
-                COALESCE(i.pic_urls,'')
+                COALESCE(i.pic_urls,''),
+                COALESCE(i.card_type,''), COALESCE(i.graded,''),
+                COALESCE(i.color,''), COALESCE(i.character,'')
              FROM inventory_items i
              LEFT JOIN sku_schemas s ON s.id = i.sku_schema_id
              WHERE (i.title LIKE ?1 OR i.card_name LIKE ?1 OR i.custom_label LIKE ?1 OR i.set_name LIKE ?1)
@@ -528,32 +578,43 @@ pub fn query_inventory(
 
     let rows = stmt
         .query_map(params![like, status_filter], |row| {
-            let labels_json: String = row.get(14)?;
+            let labels_json: String = row.get(21)?;
             let segment_labels: Vec<String> =
                 serde_json::from_str(&labels_json).unwrap_or_default();
-            let pic_urls_raw: String = row.get(15)?;
+            let pic_urls_raw: String = row.get(22)?;
             let pic_urls: Vec<String> = pic_urls_raw
                 .split('|')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
             Ok(InventoryItemRow {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                card_name: row.get(2)?,
+                id:          row.get(0)?,
+                title:       row.get(1)?,
+                card_name:   row.get(2)?,
                 card_number: row.get(3)?,
-                set_name: row.get(4)?,
-                rarity: row.get(5)?,
-                condition: row.get(6)?,
-                price: row.get(7)?,
-                tcg: row.get(8)?,
-                custom_label: row.get(9)?,
-                status: row.get(10)?,
-                imported_at: row.get(11)?,
-                sku_schema_id: row.get(12)?,
-                schema_name: row.get(13)?,
+                set_name:    row.get(4)?,
+                rarity:      row.get(5)?,
+                finish:      row.get(6)?,
+                specialty:   row.get(7)?,
+                condition:   row.get(8)?,
+                price:       row.get(9)?,
+                tcg:         row.get(10)?,
+                language:    row.get(11)?,
+                illustrator: row.get(12)?,
+                year:        row.get(13)?,
+                stage:       row.get(14)?,
+                description: row.get(15)?,
+                custom_label: row.get(16)?,
+                status:       row.get(17)?,
+                imported_at:  row.get(18)?,
+                sku_schema_id: row.get(19)?,
+                schema_name:   row.get(20)?,
                 segment_labels,
                 pic_urls,
+                card_type:  row.get(23)?,
+                graded:     row.get(24)?,
+                color:      row.get(25)?,
+                character:  row.get(26)?,
             })
         })
         .map_err(|e| e.to_string())?;

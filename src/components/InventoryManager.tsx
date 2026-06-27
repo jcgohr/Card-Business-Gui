@@ -10,9 +10,16 @@ interface InventoryItemRow {
   card_number: string;
   set_name: string;
   rarity: string;
+  finish: string;
+  specialty: string;
   condition: string;
   price: number | null;
   tcg: string;
+  language: string;
+  illustrator: string;
+  year: string;
+  stage: string;
+  description: string;
   custom_label: string;
   status: string;
   imported_at: string;
@@ -20,6 +27,10 @@ interface InventoryItemRow {
   schema_name: string;
   segment_labels: string[];
   pic_urls: string[];
+  card_type: string;
+  graded: string;
+  color: string;
+  character: string;
 }
 
 interface InventoryStats {
@@ -218,13 +229,17 @@ export default function InventoryManager() {
   // ── Import ────────────────────────────────────────────────────────────────
 
   async function handleImport() {
-    const path = await invoke<string | null>("select_file", {
-      filterName: "CSV Files",
-      filterExt: "csv",
-    });
-    if (!path) return;
-    const filename = path.split(/[\\/]/).pop() ?? path;
-    setPendingImport({ path, filename });
+    try {
+      const path = await invoke<string | null>("select_file", {
+        filterName: "CSV Files",
+        filterExt: "csv",
+      });
+      if (!path) return;
+      const filename = path.split(/[\\/]/).pop() ?? path;
+      setPendingImport({ path, filename });
+    } catch (e) {
+      setStatusMsg({ text: `Failed to open file picker: ${e}`, kind: "err" });
+    }
   }
 
   async function doImport(schemaId: number | null) {
@@ -487,9 +502,9 @@ export default function InventoryManager() {
               <button className="inv-detail-close" onClick={() => { setDetailItem(null); setSelectedIds(new Set()); }}>✕</button>
             </div>
 
-            {detailItem.pic_urls.length > 0 ? (
+            {(detailItem.pic_urls ?? []).length > 0 ? (
               <div className="inv-detail-img-wrap">
-                {detailItem.pic_urls.slice(0, 2).map((url, i) => (
+                {(detailItem.pic_urls ?? []).slice(0, 2).map((url, i) => (
                   <div key={i} className="inv-detail-img-card">
                     <span className="inv-detail-img-label">{i === 0 ? "Front" : "Back"}</span>
                     <img src={url} alt={i === 0 ? "Front" : "Back"} className="inv-detail-img" />
@@ -501,12 +516,10 @@ export default function InventoryManager() {
             )}
 
             <div className="inv-detail-fields">
-              {detailItem.custom_label && (
-                <div className="inv-detail-field">
-                  <span className="inv-detail-label">SKU</span>
-                  <span className="inv-detail-value inv-detail-value--mono">{detailItem.custom_label}</span>
-                </div>
-              )}
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">SKU</span>
+                <span className="inv-detail-value inv-detail-value--mono">{detailItem.custom_label || "—"}</span>
+              </div>
               {detailItem.schema_name && (
                 <div className="inv-detail-field">
                   <span className="inv-detail-label">Schema</span>
@@ -517,54 +530,84 @@ export default function InventoryManager() {
                 <span className="inv-detail-label">Status</span>
                 <span className={`inv-badge inv-badge--${detailItem.status}`}>{detailItem.status}</span>
               </div>
-              {detailItem.price != null && (
-                <div className="inv-detail-field">
-                  <span className="inv-detail-label">Price</span>
-                  <span className="inv-detail-value">${detailItem.price.toFixed(2)}</span>
-                </div>
-              )}
-              {detailItem.title && (
-                <div className="inv-detail-field inv-detail-field--col">
-                  <span className="inv-detail-label">Title</span>
-                  <span className="inv-detail-value">{detailItem.title}</span>
-                </div>
-              )}
-              {detailItem.card_name && (
-                <div className="inv-detail-field">
-                  <span className="inv-detail-label">Card</span>
-                  <span className="inv-detail-value">{detailItem.card_name}</span>
-                </div>
-              )}
-              {detailItem.card_number && (
-                <div className="inv-detail-field">
-                  <span className="inv-detail-label">Number</span>
-                  <span className="inv-detail-value">{detailItem.card_number}</span>
-                </div>
-              )}
-              {detailItem.set_name && (
-                <div className="inv-detail-field">
-                  <span className="inv-detail-label">Set</span>
-                  <span className="inv-detail-value">{detailItem.set_name}</span>
-                </div>
-              )}
-              {detailItem.rarity && (
-                <div className="inv-detail-field">
-                  <span className="inv-detail-label">Rarity</span>
-                  <span className="inv-detail-value">{detailItem.rarity}</span>
-                </div>
-              )}
-              {detailItem.condition && (
-                <div className="inv-detail-field">
-                  <span className="inv-detail-label">Condition</span>
-                  <span className="inv-detail-value">{detailItem.condition}</span>
-                </div>
-              )}
-              {detailItem.tcg && (
-                <div className="inv-detail-field">
-                  <span className="inv-detail-label">TCG</span>
-                  <span className="inv-detail-value">{detailItem.tcg}</span>
-                </div>
-              )}
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Price</span>
+                <span className="inv-detail-value">
+                  {detailItem.price != null ? `$${detailItem.price.toFixed(2)}` : "—"}
+                </span>
+              </div>
+              <div className="inv-detail-field inv-detail-field--col">
+                <span className="inv-detail-label">Title</span>
+                <span className="inv-detail-value">{detailItem.title || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Card Name</span>
+                <span className="inv-detail-value">{detailItem.card_name || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Card Number</span>
+                <span className="inv-detail-value">{detailItem.card_number || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Set</span>
+                <span className="inv-detail-value">{detailItem.set_name || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Rarity</span>
+                <span className="inv-detail-value">{detailItem.rarity || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Condition</span>
+                <span className="inv-detail-value">{detailItem.condition || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Finish</span>
+                <span className="inv-detail-value">{detailItem.finish || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Specialty</span>
+                <span className="inv-detail-value">{detailItem.specialty || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Stage</span>
+                <span className="inv-detail-value">{detailItem.stage || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Language</span>
+                <span className="inv-detail-value">{detailItem.language || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">TCG</span>
+                <span className="inv-detail-value">{detailItem.tcg || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Year</span>
+                <span className="inv-detail-value">{detailItem.year || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Illustrator</span>
+                <span className="inv-detail-value">{detailItem.illustrator || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Card Type</span>
+                <span className="inv-detail-value">{detailItem.card_type || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Character</span>
+                <span className="inv-detail-value">{detailItem.character || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Color</span>
+                <span className="inv-detail-value">{detailItem.color || "—"}</span>
+              </div>
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Graded</span>
+                <span className="inv-detail-value">{detailItem.graded || "—"}</span>
+              </div>
+              <div className="inv-detail-field inv-detail-field--col">
+                <span className="inv-detail-label">Description</span>
+                <span className="inv-detail-value inv-detail-value--desc">{detailItem.description || "—"}</span>
+              </div>
             </div>
           </div>
         )}
