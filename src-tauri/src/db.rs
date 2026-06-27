@@ -262,11 +262,11 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
     let c_rarity       = col(&headers, &["rarity"]);
     let c_finish       = col(&headers, &["finish"]);
     let c_specialty    = col(&headers, &["specialty", "speciality"]);
-    let c_condition    = col(&headers, &["condition", "condition name", "conditionname"]);
+    let c_condition    = col(&headers, &["condition", "condition name", "conditionname", "card condition"]);
     let c_price        = col(&headers, &["start price", "buy it now price", "buyitnowprice", "price"]);
     let c_pic_urls     = col(&headers, &["pic url", "pic urls", "picurl", "picture url", "gallery url", "photo url"]);
     let c_illustrator  = col(&headers, &["illustrator", "artist"]);
-    let c_year         = col(&headers, &["year", "release year"]);
+    let c_year         = col(&headers, &["year", "release year", "year manufactured"]);
     let c_stage        = col(&headers, &["stage", "evolution stage"]);
     let c_tcg          = col(&headers, &["tcg", "game", "card game"]);
     let c_language     = col(&headers, &["language", "lang", "edition"]);
