@@ -1021,6 +1021,51 @@ pub struct SyncStatus {
     pub inventory_imports_since_active: i64,
 }
 
+// ---------------------------------------------------------------------------
+// Pick sheet
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Debug, Clone)]
+pub struct PickSheetItem {
+    pub order_id: i64,
+    pub order_number: String,
+    pub recipient: String,
+    pub custom_label: String,
+    pub item_title: String,
+    pub quantity: i64,
+}
+
+pub fn get_pick_sheet(conn: &Connection) -> Result<Vec<PickSheetItem>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT o.id, o.ebay_order_number,
+                COALESCE(NULLIF(o.ship_to_name,''), NULLIF(o.buyer_name,''), NULLIF(o.buyer_username,''), 'Unknown'),
+                COALESCE(oi.custom_label,''),
+                COALESCE(oi.item_title,''),
+                oi.quantity
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+         WHERE o.status = 'new'
+         ORDER BY o.id, oi.id",
+    ).map_err(|e| e.to_string())?;
+
+    let rows: Vec<PickSheetItem> = stmt
+        .query_map([], |row| {
+            Ok(PickSheetItem {
+                order_id:     row.get(0)?,
+                order_number: row.get(1)?,
+                recipient:    row.get(2)?,
+                custom_label: row.get(3)?,
+                item_title:   row.get(4)?,
+                quantity:     row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows)
+}
+
 pub fn get_sync_status(conn: &Connection) -> Result<SyncStatus, String> {
     let last_active_at: String = conn.query_row(
         "SELECT COALESCE(MAX(imported_at), '') FROM imports WHERE type = 'active_listings'",

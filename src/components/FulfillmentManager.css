@@ -23,9 +23,59 @@
   color: var(--text-primary);
 }
 
+.ff-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .ff-import-btn {
   padding: 0.45em 1.1em;
   font-size: 0.875rem;
+}
+
+/* ── View tabs ───────────────────────────────────────── */
+
+.ff-view-tabs {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ff-view-tab {
+  padding: 0.35em 0.9em;
+  font-size: 0.875rem;
+  border: none;
+  border-radius: 0;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.ff-view-tab + .ff-view-tab {
+  border-left: 1px solid var(--border);
+}
+
+.ff-view-tab:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.ff-view-tab--active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.ff-view-tab-count {
+  font-size: 0.72rem;
+  background: rgba(255,255,255,0.1);
+  padding: 0.1em 0.45em;
+  border-radius: 10px;
 }
 
 /* ── Status message ──────────────────────────────────── */
@@ -276,4 +326,214 @@
 .ff-item-tracking {
   font-family: monospace;
   font-size: 0.75rem;
+}
+
+/* ── Pick sheet ──────────────────────────────────────── */
+
+.ff-picksheet {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ff-ps-print-header {
+  display: none; /* shown only in print */
+}
+
+.ff-ps-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 0.75rem 0;
+  flex-shrink: 0;
+}
+
+.ff-ps-summary {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.ff-ps-no-sku-note {
+  color: #f59e0b;
+}
+
+.ff-ps-print-btn {
+  padding: 0.3em 0.85em;
+  font-size: 0.8rem;
+}
+
+.ff-ps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Shared grid for column headers + item rows:
+   Location | Card | Order# | Recipient | Qty */
+.ff-ps-col-headers,
+.ff-ps-item {
+  display: grid;
+  grid-template-columns: 11rem 1fr 3rem 9rem 2rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.85rem;
+}
+
+.ff-ps-col-headers {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.ff-ps-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ff-ps-group--no-sku {
+  border-color: rgba(245,158,11,0.3);
+}
+
+.ff-ps-group-header {
+  background: var(--bg-elevated);
+  padding: 0.4rem 0.85rem;
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+
+.ff-ps-group--no-sku .ff-ps-group-header {
+  color: #f59e0b;
+}
+
+.ff-ps-item {
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+
+.ff-ps-item:last-child {
+  border-bottom: none;
+}
+
+.ff-ps-sku {
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.ff-ps-sku--none {
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.ff-ps-order-num {
+  font-family: monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ff-ps-title {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ff-ps-recipient {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ff-ps-qty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* ── Print styles ────────────────────────────────────── */
+
+@media print {
+  /* Hide all app chrome */
+  .sidebar,
+  .sidebar-toggle,
+  .sidebar-backdrop,
+  .ff-header,
+  .ff-msg,
+  .ff-filters,
+  .ff-ps-toolbar { display: none !important; }
+
+  /* Kill dark theme — force white page */
+  .app-shell,
+  .app-main,
+  .ff,
+  .ff-picksheet { background: #fff !important; color: #000 !important; }
+
+  /* Remove scroll containers so content flows for print */
+  .app-shell { display: block !important; }
+  .app-main  { overflow: visible !important; height: auto !important; }
+  .ff        { height: auto !important; overflow: visible !important; padding: 0 !important; }
+  .ff-picksheet { overflow: visible !important; }
+
+  /* Show print header */
+  .ff-ps-print-header {
+    display: flex !important;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-bottom: 0.75rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid #000;
+  }
+
+  .ff-ps-print-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #000;
+  }
+
+  .ff-ps-print-meta {
+    font-size: 0.85rem;
+    color: #555;
+  }
+
+  /* Groups shouldn't split across pages */
+  .ff-ps-group { page-break-inside: avoid; border: 1px solid #999 !important; }
+  .ff-ps-group-header {
+    background: #eee !important;
+    color: #000 !important;
+    border-bottom: 1px solid #999 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .ff-ps-group--no-sku .ff-ps-group-header { background: #fff8e7 !important; }
+
+  .ff-ps-col-headers { border-color: #999 !important; color: #555 !important; }
+  .ff-ps-item { border-color: #ddd !important; }
+
+  .ff-ps-sku      { color: #000 !important; }
+  .ff-ps-order-num { color: #000 !important; font-weight: 700 !important; }
+  .ff-ps-title    { color: #000 !important; }
+  .ff-ps-recipient { color: #444 !important; }
+  .ff-ps-qty      { color: #555 !important; }
+  .ff-ps-list     { gap: 0.6rem !important; }
 }

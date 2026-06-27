@@ -1181,6 +1181,14 @@ fn clear_active_listings(
 }
 
 #[tauri::command]
+fn get_pick_sheet(
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<Vec<db::PickSheetItem>, String> {
+    let conn = state.db.lock().unwrap();
+    db::get_pick_sheet(&conn)
+}
+
+#[tauri::command]
 fn get_sync_status(
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<db::SyncStatus, String> {
@@ -1234,6 +1242,7 @@ pub fn run() {
             get_active_listings_count,
             clear_active_listings,
             get_sync_status,
+            get_pick_sheet,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
