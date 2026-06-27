@@ -19,6 +19,7 @@ interface InventoryItemRow {
   sku_schema_id: number | null;
   schema_name: string;
   segment_labels: string[];
+  pic_urls: string[];
 }
 
 interface InventoryStats {
@@ -55,6 +56,9 @@ export default function InventoryManager() {
   const [pendingDelete, setPendingDelete] = useState<number | null>(null);
   const [pendingImport, setPendingImport] = useState<{ path: string; filename: string } | null>(null);
 
+  // Detail panel
+  const [detailItem, setDetailItem] = useState<InventoryItemRow | null>(null);
+
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selBox, setSelBox] = useState<SelBox | null>(null);
@@ -64,6 +68,39 @@ export default function InventoryManager() {
   const selBoxRef = useRef<SelBox | null>(null);
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
   const lastClickedIdRef = useRef<number | null>(null);
+
+  // Arrow key navigation through list (when detail panel is open)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (!detailItem || items.length === 0) return;
+      // Don't steal arrow keys from inputs
+      if ((e.target as HTMLElement).closest("input,select,textarea")) return;
+
+      e.preventDefault();
+
+      const currentIndex = items.findIndex((it) => it.id === detailItem.id);
+      if (currentIndex === -1) return;
+
+      const nextIndex = e.key === "ArrowDown"
+        ? Math.min(currentIndex + 1, items.length - 1)
+        : Math.max(currentIndex - 1, 0);
+
+      if (nextIndex === currentIndex) return;
+
+      const nextItem = items[nextIndex];
+      setSelectedIds(new Set([nextItem.id]));
+      setDetailItem(nextItem);
+      lastClickedIdRef.current = nextItem.id;
+
+      tbodyRef.current
+        ?.querySelector<HTMLTableRowElement>(`tr[data-id="${nextItem.id}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [items, detailItem]);
 
   // Rubber-band drag via window listeners
   useEffect(() => {
@@ -87,7 +124,6 @@ export default function InventoryManager() {
       selBoxRef.current = null;
       setSelBox(null);
 
-      // Threshold: ignore tiny drags (treat as clicks, handled by row onClick)
       if (!box || (box.w < 6 && box.h < 6)) return;
 
       if (!tbodyRef.current) return;
@@ -123,6 +159,8 @@ export default function InventoryManager() {
       ]);
       setItems(itemsResult);
       setStats(statsResult);
+      // Keep detail panel in sync if its item was updated
+      setDetailItem((prev) => prev ? (itemsResult.find((i) => i.id === prev.id) ?? null) : null);
     } catch (e) {
       setStatusMsg({ text: `Load error: ${e}`, kind: "err" });
     }
@@ -140,11 +178,11 @@ export default function InventoryManager() {
     dragStartRef.current = { x: e.clientX, y: e.clientY };
   }
 
-  function handleRowClick(e: React.MouseEvent, id: number, index: number) {
+  function handleRowClick(e: React.MouseEvent, item: InventoryItemRow, index: number) {
     if ((e.target as HTMLElement).closest("button")) return;
+    const { id } = item;
 
     if (e.shiftKey && lastClickedIdRef.current !== null) {
-      // Range select between last clicked and this row
       const lastIndex = items.findIndex((it) => it.id === lastClickedIdRef.current);
       const [lo, hi] = lastIndex < index ? [lastIndex, index] : [index, lastIndex];
       const rangeIds = items.slice(lo, hi + 1).map((it) => it.id);
@@ -156,11 +194,15 @@ export default function InventoryManager() {
         return next;
       });
     } else {
-      setSelectedIds((prev) => {
-        const next = new Set<number>();
-        if (!prev.has(id) || prev.size > 1) next.add(id);
-        return next;
-      });
+      // Plain click: select only this row and open detail panel
+      const alreadySolo = selectedIds.size === 1 && selectedIds.has(id);
+      if (alreadySolo) {
+        setSelectedIds(new Set());
+        setDetailItem(null);
+      } else {
+        setSelectedIds(new Set([id]));
+        setDetailItem(item);
+      }
     }
     lastClickedIdRef.current = id;
   }
@@ -213,6 +255,7 @@ export default function InventoryManager() {
     setPendingDelete(null);
     try {
       await invoke("delete_inventory_item", { id });
+      if (detailItem?.id === id) setDetailItem(null);
       await loadData();
     } catch (e) {
       setStatusMsg({ text: `Delete failed: ${e}`, kind: "err" });
@@ -225,6 +268,7 @@ export default function InventoryManager() {
     const ids = [...selectedIds];
     setBulkConfirmDelete(false);
     setSelectedIds(new Set());
+    if (detailItem && ids.includes(detailItem.id)) setDetailItem(null);
     try {
       await invoke("bulk_delete_inventory_items", { ids });
       await loadData();
@@ -248,7 +292,6 @@ export default function InventoryManager() {
 
   return (
     <div className="inv">
-      {/* Rubber-band selection rectangle */}
       {selBox && selBox.w > 2 && selBox.h > 2 && (
         <div
           className="inv-sel-rect"
@@ -315,7 +358,6 @@ export default function InventoryManager() {
         </select>
       </div>
 
-      {/* Bulk action bar */}
       {someSelected && (
         <div className="inv-bulk-bar">
           {bulkConfirmDelete ? (
@@ -339,103 +381,193 @@ export default function InventoryManager() {
         </div>
       )}
 
-      <div
-        className="inv-table-wrap"
-        onMouseDown={handleTableMouseDown}
-        style={{ userSelect: isDraggingRef.current ? "none" : undefined }}
-      >
-        <table className="inv-table">
-          <thead>
-            <tr>
-              <th className="inv-th-check">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
-                  onChange={toggleSelectAll}
-                />
-              </th>
-              <th>SKU</th>
-              <th>Collection</th>
-              <th>Title</th>
-              <th>Card Name</th>
-              <th>Set</th>
-              <th>Condition</th>
-              <th>Price</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody ref={tbodyRef}>
-            {items.map((item, index) => {
-              const selected = selectedIds.has(item.id);
-              return (
-                <tr
-                  key={item.id}
-                  data-id={item.id}
-                  className={selected ? "inv-row--selected" : undefined}
-                  onClick={(e) => handleRowClick(e, item.id, index)}
-                >
-                  <td className="inv-cell-check" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => {
-                        setSelectedIds((prev) => {
-                          const next = new Set(prev);
-                          next.has(item.id) ? next.delete(item.id) : next.add(item.id);
-                          return next;
-                        });
-                      }}
-                    />
-                  </td>
-                  <td className="inv-cell-sku">{item.custom_label || "—"}</td>
-                  <td className="inv-cell-schema">
-                    {(() => {
-                      const val = extractCollectionValue(item);
-                      return val
-                        ? <span className="inv-schema-tag" title={item.schema_name || undefined}>{val}</span>
-                        : <span className="inv-schema-none">—</span>;
-                    })()}
-                  </td>
-                  <td className="inv-cell-title">{item.title}</td>
-                  <td>{item.card_name || "—"}</td>
-                  <td>{item.set_name || "—"}</td>
-                  <td>{item.condition || "—"}</td>
-                  <td>{item.price != null ? `$${item.price.toFixed(2)}` : "—"}</td>
-                  <td>
-                    <span className={`inv-badge inv-badge--${item.status}`}>{item.status}</span>
-                  </td>
-                  <td className="inv-cell-actions" onClick={(e) => e.stopPropagation()}>
-                    {pendingDelete === item.id ? (
-                      <span className="inv-delete-confirm">
-                        <button className="inv-confirm-yes" onClick={() => confirmDelete(item.id)}>Yes</button>
-                        <button className="inv-confirm-no" onClick={() => setPendingDelete(null)}>No</button>
-                      </span>
-                    ) : (
-                      <button
-                        className="inv-delete-btn"
-                        onClick={() => setPendingDelete(item.id)}
-                        title="Delete item"
-                      >
-                        ✕
-                      </button>
-                    )}
+      <div className="inv-body">
+        <div
+          className="inv-table-wrap"
+          onMouseDown={handleTableMouseDown}
+        >
+          <table className="inv-table">
+            <thead>
+              <tr>
+                <th className="inv-th-check">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                    onChange={toggleSelectAll}
+                  />
+                </th>
+                <th>SKU</th>
+                <th>Collection</th>
+                <th>Title</th>
+                <th>Card Name</th>
+                <th>Set</th>
+                <th>Condition</th>
+                <th>Price</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody ref={tbodyRef}>
+              {items.map((item, index) => {
+                const selected = selectedIds.has(item.id);
+                return (
+                  <tr
+                    key={item.id}
+                    data-id={item.id}
+                    className={selected ? "inv-row--selected" : undefined}
+                    onClick={(e) => handleRowClick(e, item, index)}
+                  >
+                    <td className="inv-cell-check" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            next.has(item.id) ? next.delete(item.id) : next.add(item.id);
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className="inv-cell-sku">{item.custom_label || "—"}</td>
+                    <td className="inv-cell-schema">
+                      {(() => {
+                        const val = extractCollectionValue(item);
+                        return val
+                          ? <span className="inv-schema-tag" title={item.schema_name || undefined}>{val}</span>
+                          : <span className="inv-schema-none">—</span>;
+                      })()}
+                    </td>
+                    <td className="inv-cell-title">{item.title}</td>
+                    <td>{item.card_name || "—"}</td>
+                    <td>{item.set_name || "—"}</td>
+                    <td>{item.condition || "—"}</td>
+                    <td>{item.price != null ? `$${item.price.toFixed(2)}` : "—"}</td>
+                    <td>
+                      <span className={`inv-badge inv-badge--${item.status}`}>{item.status}</span>
+                    </td>
+                    <td className="inv-cell-actions" onClick={(e) => e.stopPropagation()}>
+                      {pendingDelete === item.id ? (
+                        <span className="inv-delete-confirm">
+                          <button className="inv-confirm-yes" onClick={() => confirmDelete(item.id)}>Yes</button>
+                          <button className="inv-confirm-no" onClick={() => setPendingDelete(null)}>No</button>
+                        </span>
+                      ) : (
+                        <button
+                          className="inv-delete-btn"
+                          onClick={() => setPendingDelete(item.id)}
+                          title="Delete item"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="inv-empty">
+                    {search || statusFilter
+                      ? "No items match your search."
+                      : "No inventory yet. Import a listing CSV to get started."}
                   </td>
                 </tr>
-              );
-            })}
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={10} className="inv-empty">
-                  {search || statusFilter
-                    ? "No items match your search."
-                    : "No inventory yet. Import a listing CSV to get started."}
-                </td>
-              </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {detailItem && (
+          <div className="inv-detail-panel">
+            <div className="inv-detail-header">
+              <span className="inv-detail-heading">Details</span>
+              <button className="inv-detail-close" onClick={() => { setDetailItem(null); setSelectedIds(new Set()); }}>✕</button>
+            </div>
+
+            {detailItem.pic_urls.length > 0 ? (
+              <div className="inv-detail-img-wrap">
+                {detailItem.pic_urls.slice(0, 2).map((url, i) => (
+                  <div key={i} className="inv-detail-img-card">
+                    <span className="inv-detail-img-label">{i === 0 ? "Front" : "Back"}</span>
+                    <img src={url} alt={i === 0 ? "Front" : "Back"} className="inv-detail-img" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="inv-detail-no-img">No image</div>
             )}
-          </tbody>
-        </table>
+
+            <div className="inv-detail-fields">
+              {detailItem.custom_label && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">SKU</span>
+                  <span className="inv-detail-value inv-detail-value--mono">{detailItem.custom_label}</span>
+                </div>
+              )}
+              {detailItem.schema_name && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">Schema</span>
+                  <span className="inv-detail-value">{detailItem.schema_name}</span>
+                </div>
+              )}
+              <div className="inv-detail-field">
+                <span className="inv-detail-label">Status</span>
+                <span className={`inv-badge inv-badge--${detailItem.status}`}>{detailItem.status}</span>
+              </div>
+              {detailItem.price != null && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">Price</span>
+                  <span className="inv-detail-value">${detailItem.price.toFixed(2)}</span>
+                </div>
+              )}
+              {detailItem.title && (
+                <div className="inv-detail-field inv-detail-field--col">
+                  <span className="inv-detail-label">Title</span>
+                  <span className="inv-detail-value">{detailItem.title}</span>
+                </div>
+              )}
+              {detailItem.card_name && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">Card</span>
+                  <span className="inv-detail-value">{detailItem.card_name}</span>
+                </div>
+              )}
+              {detailItem.card_number && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">Number</span>
+                  <span className="inv-detail-value">{detailItem.card_number}</span>
+                </div>
+              )}
+              {detailItem.set_name && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">Set</span>
+                  <span className="inv-detail-value">{detailItem.set_name}</span>
+                </div>
+              )}
+              {detailItem.rarity && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">Rarity</span>
+                  <span className="inv-detail-value">{detailItem.rarity}</span>
+                </div>
+              )}
+              {detailItem.condition && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">Condition</span>
+                  <span className="inv-detail-value">{detailItem.condition}</span>
+                </div>
+              )}
+              {detailItem.tcg && (
+                <div className="inv-detail-field">
+                  <span className="inv-detail-label">TCG</span>
+                  <span className="inv-detail-value">{detailItem.tcg}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

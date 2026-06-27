@@ -132,6 +132,7 @@ pub struct InventoryItemRow {
     pub sku_schema_id: Option<i64>,
     pub schema_name: String,
     pub segment_labels: Vec<String>,
+    pub pic_urls: Vec<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -514,7 +515,8 @@ pub fn query_inventory(
                 COALESCE(i.condition,''), i.price,
                 COALESCE(i.tcg,''), COALESCE(i.custom_label,''),
                 i.status, i.imported_at,
-                i.sku_schema_id, COALESCE(s.name,''), COALESCE(s.segment_labels,'[]')
+                i.sku_schema_id, COALESCE(s.name,''), COALESCE(s.segment_labels,'[]'),
+                COALESCE(i.pic_urls,'')
              FROM inventory_items i
              LEFT JOIN sku_schemas s ON s.id = i.sku_schema_id
              WHERE (i.title LIKE ?1 OR i.card_name LIKE ?1 OR i.custom_label LIKE ?1 OR i.set_name LIKE ?1)
@@ -529,6 +531,12 @@ pub fn query_inventory(
             let labels_json: String = row.get(14)?;
             let segment_labels: Vec<String> =
                 serde_json::from_str(&labels_json).unwrap_or_default();
+            let pic_urls_raw: String = row.get(15)?;
+            let pic_urls: Vec<String> = pic_urls_raw
+                .split('|')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
             Ok(InventoryItemRow {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -545,6 +553,7 @@ pub fn query_inventory(
                 sku_schema_id: row.get(12)?,
                 schema_name: row.get(13)?,
                 segment_labels,
+                pic_urls,
             })
         })
         .map_err(|e| e.to_string())?;

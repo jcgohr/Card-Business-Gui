@@ -244,6 +244,143 @@
   font-size: 0.875rem;
 }
 
+/* ── Body (table + detail panel side by side) ────────── */
+
+.inv-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 0;
+}
+
+/* ── Detail panel ────────────────────────────────────── */
+
+.inv-detail-panel {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  background: var(--bg-surface);
+}
+
+.inv-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.inv-detail-heading {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.inv-detail-close {
+  padding: 0.2em 0.45em;
+  font-size: 0.75rem;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+  line-height: 1;
+}
+
+.inv-detail-close:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.inv-detail-img-wrap {
+  padding: 0.65rem;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.inv-detail-img-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.inv-detail-img-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.inv-detail-img {
+  width: 100%;
+  aspect-ratio: 3/4;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+.inv-detail-no-img {
+  padding: 1.5rem 0.75rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.inv-detail-fields {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0;
+}
+
+.inv-detail-field {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.inv-detail-field--col {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.inv-detail-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.inv-detail-value {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-word;
+}
+
+.inv-detail-value--mono {
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
 /* ── Selection checkbox column ───────────────────────── */
 
 .inv-th-check,
