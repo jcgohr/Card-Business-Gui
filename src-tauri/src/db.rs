@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -668,6 +668,9 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
     let mut order_map: HashMap<String, (i64, bool)> = HashMap::new();
     let mut rows_imported = 0usize;
     let mut already_existed = 0usize;
+    // Track inventory items already reserved for other order items in this import,
+    // so the same physical copy isn't assigned to two different orders.
+    let mut reserved_ids: HashSet<i64> = HashSet::new();
 
     for result in rdr.records() {
         let record = result.map_err(|e| e.to_string())?;
@@ -743,7 +746,9 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
         let transaction_id = get(&record, c_transaction_id);
         let sales_record   = get(&record, c_sales_record);
 
-        // Try to link to an inventory item: first by SKU, then by title
+        // Try to link to an inventory item: first by SKU, then by title.
+        // For title matches, exclude inventory items already reserved for earlier
+        // order items in this batch so each physical copy goes to exactly one order.
         let inventory_item_id: Option<i64> = if !custom_label.is_empty() {
             conn.query_row(
                 "SELECT id FROM inventory_items WHERE custom_label = ?1 AND status != 'sold' LIMIT 1",
@@ -751,14 +756,32 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
                 |row| row.get(0),
             ).ok()
         } else if !item_title.is_empty() {
-            conn.query_row(
-                "SELECT id FROM inventory_items WHERE LOWER(TRIM(title)) = LOWER(TRIM(?1)) AND status != 'sold' LIMIT 1",
-                params![item_title],
-                |row| row.get(0),
-            ).ok()
+            let excluded: String = reserved_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = if excluded.is_empty() {
+                "SELECT id FROM inventory_items \
+                 WHERE LOWER(TRIM(title)) = LOWER(TRIM(?1)) AND status != 'sold' \
+                 ORDER BY id LIMIT 1"
+                    .to_string()
+            } else {
+                format!(
+                    "SELECT id FROM inventory_items \
+                     WHERE LOWER(TRIM(title)) = LOWER(TRIM(?1)) AND status != 'sold' \
+                       AND id NOT IN ({excluded}) \
+                     ORDER BY id LIMIT 1"
+                )
+            };
+            conn.query_row(&sql, params![item_title], |row| row.get::<_, i64>(0)).ok()
         } else {
             None
         };
+
+        if let Some(id) = inventory_item_id {
+            reserved_ids.insert(id);
+        }
 
         conn.execute(
             "INSERT INTO order_items (
@@ -1169,44 +1192,102 @@ pub fn save_fulfillment_times(conn: &Connection, fulfillment_id: i64, pick_secon
 }
 
 pub fn get_pick_sheet(conn: &Connection, fulfillment_id: i64) -> Result<Vec<PickSheetItem>, String> {
-    let mut stmt = conn.prepare(
-        "SELECT o.id, o.ebay_order_number,
-                COALESCE(NULLIF(o.ship_to_name,''), NULLIF(o.buyer_name,''), NULLIF(o.buyer_username,''), 'Unknown'),
-                COALESCE(
-                    NULLIF(oi.custom_label,''),
-                    NULLIF(inv.custom_label,''),
-                    (SELECT NULLIF(i2.custom_label,'')
-                     FROM inventory_items i2
-                     WHERE i2.status != 'sold'
-                       AND LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
-                     LIMIT 1),
-                    ''
-                ),
-                COALESCE(oi.item_title,''),
-                oi.quantity
-         FROM order_items oi
-         JOIN orders o ON o.id = oi.order_id
-         LEFT JOIN inventory_items inv ON inv.id = oi.inventory_item_id
-         WHERE o.status = 'new' AND o.fulfillment_id = ?1
-         ORDER BY o.id, oi.id",
-    ).map_err(|e| e.to_string())?;
+    struct RawRow {
+        order_id:    i64,
+        order_number: String,
+        recipient:   String,
+        order_label: String,  // custom_label from the order CSV row
+        inv_label:   String,  // custom_label from the directly linked inventory item
+        item_title:  String,
+        quantity:    i64,
+        inv_item_id: Option<i64>,
+    }
 
-    let rows: Vec<PickSheetItem> = stmt
-        .query_map(params![fulfillment_id], |row| {
-            Ok(PickSheetItem {
+    let raw: Vec<RawRow> = {
+        let mut stmt = conn.prepare(
+            "SELECT o.id, o.ebay_order_number,
+                    COALESCE(NULLIF(o.ship_to_name,''), NULLIF(o.buyer_name,''), NULLIF(o.buyer_username,''), 'Unknown'),
+                    COALESCE(oi.custom_label,''),
+                    COALESCE(inv.custom_label,''),
+                    COALESCE(oi.item_title,''),
+                    oi.quantity,
+                    oi.inventory_item_id
+             FROM order_items oi
+             JOIN orders o ON o.id = oi.order_id
+             LEFT JOIN inventory_items inv ON inv.id = oi.inventory_item_id
+             WHERE o.status = 'new' AND o.fulfillment_id = ?1
+             ORDER BY o.id, oi.id",
+        ).map_err(|e| e.to_string())?;
+
+        let collected = stmt.query_map(params![fulfillment_id], |row| {
+            Ok(RawRow {
                 order_id:     row.get(0)?,
                 order_number: row.get(1)?,
                 recipient:    row.get(2)?,
-                custom_label: row.get(3)?,
-                item_title:   row.get(4)?,
-                quantity:     row.get(5)?,
+                order_label:  row.get(3)?,
+                inv_label:    row.get(4)?,
+                item_title:   row.get(5)?,
+                quantity:     row.get(6)?,
+                inv_item_id:  row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| e.to_string())?;
+        collected
+    };
 
-    Ok(rows)
+    // Seed used_ids with inventory items that are already directly linked,
+    // so the title-match fallback below doesn't double-assign them.
+    let mut used_ids: HashSet<i64> = raw.iter().filter_map(|r| r.inv_item_id).collect();
+
+    let mut result = Vec::new();
+    for row in raw {
+        let custom_label = if !row.order_label.is_empty() {
+            // SKU/label came directly from the order CSV
+            row.order_label
+        } else if !row.inv_label.is_empty() {
+            // Directly linked inventory item has a location label
+            row.inv_label
+        } else if !row.item_title.is_empty() {
+            // Title-match fallback: pick the first non-sold, not-yet-used copy
+            let candidates: Vec<(i64, String)> = {
+                let mut s = conn.prepare(
+                    "SELECT id, COALESCE(custom_label,'') FROM inventory_items
+                     WHERE LOWER(TRIM(title)) = LOWER(TRIM(?1)) AND status != 'sold'
+                     ORDER BY id",
+                ).map_err(|e| e.to_string())?;
+                let c = s.query_map(params![row.item_title], |r| Ok((r.get(0)?, r.get(1)?)))
+                    .map_err(|e| e.to_string())?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(|e| e.to_string())?;
+                c
+            };
+
+            let mut found = String::new();
+            for (id, label) in candidates {
+                if !used_ids.contains(&id) {
+                    used_ids.insert(id);
+                    found = label;
+                    break;
+                }
+            }
+            found
+        } else {
+            String::new()
+        };
+
+        result.push(PickSheetItem {
+            order_id:     row.order_id,
+            order_number: row.order_number,
+            recipient:    row.recipient,
+            custom_label,
+            item_title:   row.item_title,
+            quantity:     row.quantity,
+        });
+    }
+
+    Ok(result)
 }
 
 pub fn clear_fulfillments(conn: &Connection) -> Result<(), String> {
