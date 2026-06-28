@@ -238,6 +238,9 @@ export default function FulfillmentManager() {
       if (e.key === "ArrowRight" || e.key === "Enter") {
         e.preventDefault();
         advanceRef.current();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setCurrentOrderIdx(i => Math.max(0, i - 1));
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -473,10 +476,15 @@ export default function FulfillmentManager() {
             </div>
           )}
           <div className="ff-pack-footer">
+            {currentOrderIdx > 0 && (
+              <button className="ff-pack-back-btn" onClick={() => setCurrentOrderIdx(i => i - 1)}>
+                ← Prev
+              </button>
+            )}
             <button className="ff-pack-next-btn" onClick={() => advanceRef.current()}>
               {currentOrderIdx < packOrders.length - 1 ? "Next Order →" : "Done Packing ✓"}
             </button>
-            <span className="ff-pack-hint">or press →</span>
+            <span className="ff-pack-hint">← → to navigate</span>
           </div>
         </div>
       )}
