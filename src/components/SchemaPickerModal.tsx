@@ -9,10 +9,12 @@ interface SkuSchema {
   created_at: string;
 }
 
+type CsvFormat = "carddealerpro" | "carduploader";
+
 interface Props {
   path: string;
   filename: string;
-  onConfirm: (schemaId: number | null, keepFirstSku: boolean) => void;
+  onConfirm: (schemaId: number | null, keepFirstSku: boolean, format: CsvFormat, chaosLocation: string | null) => void;
   onCancel: () => void;
 }
 
@@ -29,6 +31,8 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
   const [schemas, setSchemas] = useState<SkuSchema[]>([]);
   const [samples, setSamples] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [format, setFormat] = useState<CsvFormat>("carduploader");
+  const [chaosSegments, setChaosSegments] = useState<string[]>(["", "", ""]);
 
   // New schema form
   const [newName, setNewName] = useState("");
@@ -39,6 +43,9 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
   useEffect(() => {
     invoke<SkuSchema[]>("get_sku_schemas").then(setSchemas).catch(() => {});
     invoke<string[]>("preview_inventory_csv", { path }).then(setSamples).catch(() => {});
+    invoke<string>("detect_inventory_format", { path })
+      .then(f => setFormat(f as CsvFormat))
+      .catch(() => {});
   }, [path]);
 
   // Active labels for the live preview: prefer selected schema, then new labels
@@ -79,15 +86,20 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
           name: newName.trim(),
           segmentLabels: newLabels.filter(Boolean),
         });
-        onConfirm(schema.id, keepFirstSku);
+        onConfirm(schema.id, keepFirstSku, format, chaosLocation);
       } catch (e) {
         alert(`Failed to create schema: ${e}`);
         setCreating(false);
       }
     } else {
-      onConfirm(selectedId, keepFirstSku);
+      onConfirm(selectedId, keepFirstSku, format, chaosLocation);
     }
   }
+
+  const filledSegments = chaosSegments.map(s => s.trim()).filter(Boolean);
+  const chaosLocation = (format === "carddealerpro" && filledSegments.length > 0)
+    ? filledSegments.join("-")
+    : null;
 
   const canImport = !!selectedId || !!newName.trim();
   const showBreakdown = activeLabels.length > 0 && samples.length > 0;
@@ -101,7 +113,64 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
           <span className="spm-filename">{filename}</span>
         </div>
 
+        <div className="spm-format-row">
+          <span className="spm-format-label">Source</span>
+          <div className="spm-format-toggle">
+            <button
+              className={`spm-format-btn${format === "carddealerpro" ? " spm-format-btn--active" : ""}`}
+              onClick={() => setFormat("carddealerpro")}
+            >
+              <img src="/carddealerpro.svg" alt="" className="spm-format-icon" />
+              CardDealerPro
+            </button>
+            <button
+              className={`spm-format-btn${format === "carduploader" ? " spm-format-btn--active" : ""}`}
+              onClick={() => setFormat("carduploader")}
+            >
+              <img src="/carduploader.png" alt="" className="spm-format-icon" />
+              CardUploader
+            </button>
+          </div>
+        </div>
+
         <div className="spm-body">
+          {/* Chaos inventory location — CDP only */}
+          {format === "carddealerpro" && (
+            <div className="spm-section spm-chaos-section">
+              <p className="spm-section-label">Chaos inventory location</p>
+              <div className="spm-chaos-segments">
+                {chaosSegments.map((seg, i) => (
+                  <div key={i} className="spm-chaos-seg-row">
+                    <input
+                      className="spm-chaos-input"
+                      type="text"
+                      placeholder={i === 0 ? "box1" : String(i)}
+                      value={seg}
+                      onChange={e => setChaosSegments(prev => prev.map((s, idx) => idx === i ? e.target.value : s))}
+                    />
+                    {i < chaosSegments.length - 1 && <span className="spm-chaos-sep">–</span>}
+                    {chaosSegments.length > 1 && (
+                      <button
+                        className="spm-chaos-remove"
+                        onClick={() => setChaosSegments(prev => prev.filter((_, idx) => idx !== i))}
+                        title="Remove segment"
+                      >✕</button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  className="spm-chaos-add"
+                  onClick={() => setChaosSegments(prev => [...prev, ""])}
+                >+ segment</button>
+              </div>
+              {chaosLocation && (
+                <p className="spm-chaos-preview">
+                  {chaosLocation}-1, {chaosLocation}-2, {chaosLocation}-3, …
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Existing schemas */}
           {schemas.length > 0 && (
             <div className="spm-section">
@@ -186,15 +255,17 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
 
         {/* Footer */}
         <div className="spm-footer">
-          <label className="spm-keep-sku">
-            <input
-              type="checkbox"
-              checked={keepFirstSku}
-              onChange={e => setKeepFirstSku(e.target.checked)}
-            />
-            Keep first SKU in CustomLabel
-          </label>
-          <button className="spm-skip" onClick={() => onConfirm(null, keepFirstSku)}>
+          {format === "carduploader" && (
+            <label className="spm-keep-sku">
+              <input
+                type="checkbox"
+                checked={keepFirstSku}
+                onChange={e => setKeepFirstSku(e.target.checked)}
+              />
+              Keep first SKU in CustomLabel
+            </label>
+          )}
+          <button className="spm-skip" onClick={() => onConfirm(null, keepFirstSku, format, chaosLocation)}>
             Import without schema
           </button>
           <div className="spm-footer-right">

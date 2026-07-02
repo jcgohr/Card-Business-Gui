@@ -40,6 +40,64 @@
   gap: 0.75rem;
 }
 
+.spm-format-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle, rgba(255,255,255,0.03));
+}
+
+.spm-format-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.spm-format-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.spm-format-btn {
+  padding: 0.3em 0.7em;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.spm-format-btn:hover {
+  opacity: 0.75;
+}
+
+.spm-format-icon {
+  height: 22px;
+  width: auto;
+  display: block;
+}
+
+.spm-format-btn + .spm-format-btn {
+  border-left: 1px solid var(--border);
+}
+
+.spm-format-btn--active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  opacity: 1;
+}
+
 .spm-title {
   font-size: 1rem;
   font-weight: 600;
@@ -60,6 +118,72 @@
 .spm-section {
   padding: 0.9rem 1.25rem;
   overflow-y: auto;
+}
+
+.spm-chaos-section {
+  border-bottom: 1px solid var(--border);
+}
+
+.spm-chaos-segments {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.spm-chaos-seg-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.spm-chaos-input {
+  width: 5rem;
+  text-align: center;
+  font-size: 0.9rem;
+  padding: 0.3em 0.4em;
+}
+
+.spm-chaos-sep {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
+
+.spm-chaos-remove {
+  padding: 0.15em 0.45em;
+  font-size: 0.7rem;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.spm-chaos-remove:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.spm-chaos-add {
+  padding: 0.25em 0.6em;
+  font-size: 0.78rem;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.spm-chaos-add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.spm-chaos-preview {
+  margin: 0.6rem 0 0;
+  font-size: 0.78rem;
+  font-family: monospace;
+  color: var(--accent);
 }
 
 .spm-section-label {

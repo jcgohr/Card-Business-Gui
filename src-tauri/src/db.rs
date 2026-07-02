@@ -303,9 +303,9 @@ fn strip_bom(data: Vec<u8>) -> Vec<u8> {
     }
 }
 
-/// Some eBay CSV exports prepend a BOM and then one or more lines of
-/// comma-separated empty fields before the real header row. Skip those
-/// so the next line becomes the header row the CSV reader sees.
+/// Skip leading rows that aren't real headers:
+/// - Empty/comma-only rows (eBay seller hub export artifact)
+/// - "Info,..." metadata rows (CardDealerPro eBay File Exchange format)
 fn skip_empty_leading_rows(data: Vec<u8>) -> Vec<u8> {
     let mut start = 0;
     let mut i = 0;
@@ -313,7 +313,9 @@ fn skip_empty_leading_rows(data: Vec<u8>) -> Vec<u8> {
         if data[i] == b'\n' {
             let line = &data[start..i];
             let line = if line.ends_with(b"\r") { &line[..line.len() - 1] } else { line };
-            if line.iter().all(|&b| matches!(b, b',' | b'\t' | b' ')) {
+            let is_empty = line.iter().all(|&b| matches!(b, b',' | b'\t' | b' '));
+            let is_info  = line.len() >= 5 && line[..5].eq_ignore_ascii_case(b"Info,");
+            if is_empty || is_info {
                 start = i + 1;
             } else {
                 break;
@@ -328,9 +330,17 @@ fn skip_empty_leading_rows(data: Vec<u8>) -> Vec<u8> {
 // Inventory CSV import
 // ---------------------------------------------------------------------------
 
-pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_id: Option<i64>, keep_first_sku: bool) -> Result<ImportResult, String> {
+pub fn detect_inventory_format(path: &Path) -> Result<String, String> {
     let raw = std::fs::read(path).map_err(|e| e.to_string())?;
-    let data = strip_bom(raw);
+    let data = skip_empty_leading_rows(strip_bom(raw));
+    let first_line = data.split(|&b| b == b'\n').next().unwrap_or(&[]);
+    let header = String::from_utf8_lossy(first_line).to_lowercase();
+    Ok(if header.contains("siteid") { "carddealerpro".to_string() } else { "carduploader".to_string() })
+}
+
+pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_id: Option<i64>, keep_first_sku: bool, format_hint: Option<&str>, chaos_location: Option<&str>) -> Result<ImportResult, String> {
+    let raw = std::fs::read(path).map_err(|e| e.to_string())?;
+    let data = skip_empty_leading_rows(strip_bom(raw));
     let mut rdr = csv::Reader::from_reader(data.as_slice());
 
     let headers: Vec<String> = rdr
@@ -340,24 +350,37 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
         .map(|s| s.to_string())
         .collect();
 
+    // CardDealerPro eBay File Exchange format: first column is "*Action(SiteID=...)"
+    let is_cdp = match format_hint {
+        Some("carddealerpro") => true,
+        Some("carduploader")  => false,
+        _ => headers.first().map(|h| h.to_lowercase().contains("siteid")).unwrap_or(false),
+    };
+
     let c_title        = col(&headers, &["title", "item title"]);
     let c_card_name    = col(&headers, &["card name", "cardname"]);
     let c_card_number  = col(&headers, &["card number", "cardnumber", "number", "card no", "cardno"]);
     let c_set_name     = col(&headers, &["set name", "setname", "set name/number", "setnamenumber", "set"]);
-    let c_rarity       = col(&headers, &["rarity"]);
+    // CDP uses *C:Features for RC/rookie markers; old format uses Rarity
+    let c_rarity       = col(&headers, &["rarity", "features"]);
     let c_finish       = col(&headers, &["finish"]);
-    let c_specialty    = col(&headers, &["specialty", "speciality"]);
+    // CDP uses *C:Parallel/Variety for parallel/specialty
+    let c_specialty    = col(&headers, &["specialty", "speciality", "parallel/variety"]);
+    // CDP uses CD:Card Condition; old format uses Condition
     let c_condition    = col(&headers, &["condition", "condition name", "conditionname", "card condition"]);
     let c_price        = col(&headers, &["start price", "buy it now price", "buyitnowprice", "price"]);
     let c_pic_urls     = col(&headers, &["pic url", "pic urls", "picurl", "picture url", "gallery url", "photo url"]);
     let c_illustrator  = col(&headers, &["illustrator", "artist"]);
-    let c_year         = col(&headers, &["year", "release year", "year manufactured"]);
+    // CDP uses C:Season for the year/season field
+    let c_year         = col(&headers, &["year", "release year", "year manufactured", "season"]);
     let c_stage        = col(&headers, &["stage", "evolution stage"]);
-    let c_tcg          = col(&headers, &["tcg", "game", "card game"]);
+    // CDP uses *C:Sport or *C:League; old format uses TCG/game
+    let c_tcg          = col(&headers, &["tcg", "game", "card game", "sport", "league"]);
     let c_language     = col(&headers, &["language", "lang", "edition"]);
     let c_custom_label = col(&headers, &["custom label (sku)", "custom label", "customlabelsku", "customlabel", "sku", "seller sku"]);
     let c_description  = col(&headers, &["description"]);
-    let c_card_type    = col(&headers, &["card type", "cardtype"]);
+    // CDP uses *C:Type for card type
+    let c_card_type    = col(&headers, &["card type", "cardtype", "type"]);
     let c_graded       = col(&headers, &["graded"]);
     let c_color        = col(&headers, &["attribute/mtg:colour", "colour", "color", "attribute"]);
     let c_character    = col(&headers, &["character"]);
@@ -392,113 +415,108 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
     let has_active = !active_listings.is_empty();
 
     // Determine which extra columns we need to inject for Revise rows
-    let c_action_orig  = col(&headers, &["action"]);
-    let c_item_id_orig = col(&headers, &["itemid", "item id"]);
-    let c_qty_orig     = col(&headers, &["quantity"]);
+    // CDP files are already in eBay File Exchange format — skip the file rewrite entirely.
+    // Old CardUploader format: rewrite the file with Revise rows for deduplication.
+    let deduped_count: usize;
+    let revise_rows_added: usize;
 
-    let needs_action_col   = has_active && c_action_orig.is_none();
-    let needs_item_id_col  = has_active && c_item_id_orig.is_none();
-    let needs_qty_col      = has_active && c_qty_orig.is_none();
+    if is_cdp {
+        deduped_count = 0;
+        revise_rows_added = 0;
+    } else {
+        let c_action_orig  = col(&headers, &["action"]);
+        let c_item_id_orig = col(&headers, &["itemid", "item id"]);
+        let c_qty_orig     = col(&headers, &["quantity"]);
 
-    // *Action goes first (eBay File Exchange convention), then original headers, then ItemID/Quantity appended.
-    let mut out_headers: Vec<String> = Vec::new();
-    if needs_action_col   { out_headers.push("*Action".to_string()); }
-    out_headers.extend(headers.iter().cloned());
-    if needs_item_id_col  { out_headers.push("ItemID".to_string()); }
-    if needs_qty_col      { out_headers.push("*Quantity".to_string()); }
+        let needs_action_col   = has_active && c_action_orig.is_none();
+        let needs_item_id_col  = has_active && c_item_id_orig.is_none();
+        let needs_qty_col      = has_active && c_qty_orig.is_none();
 
-    let c_action_out  = if has_active { col(&out_headers, &["action"]) }  else { None };
-    let c_item_id_out = if has_active { col(&out_headers, &["itemid", "item id"]) } else { None };
-    let c_qty_out     = if has_active { col(&out_headers, &["quantity"]) } else { None };
-    // When *Action was prepended, every original column index shifts by 1.
-    let orig_offset: usize = if needs_action_col { 1 } else { 0 };
+        let mut out_headers: Vec<String> = Vec::new();
+        if needs_action_col   { out_headers.push("*Action".to_string()); }
+        out_headers.extend(headers.iter().cloned());
+        if needs_item_id_col  { out_headers.push("ItemID".to_string()); }
+        if needs_qty_col      { out_headers.push("*Quantity".to_string()); }
 
-    // dedup_revise: norm_title → (item_number, avail_qty, new_sku_count, display_title)
-    let mut dedup_revise: HashMap<String, (String, i64, usize, String)> = HashMap::new();
+        let c_action_out  = if has_active { col(&out_headers, &["action"]) }  else { None };
+        let c_item_id_out = if has_active { col(&out_headers, &["itemid", "item id"]) } else { None };
+        let c_qty_out     = if has_active { col(&out_headers, &["quantity"]) } else { None };
+        let orig_offset: usize = if needs_action_col { 1 } else { 0 };
 
-    // Overwrite the original CSV with CustomLabel cleared and comma-separated SKUs
-    // expanded into individual rows — ready to upload directly to eBay.
-    // Duplicate titles (matching active_ebay_listings) are pulled out and written
-    // as Revise rows that update the existing listing's quantity instead.
-    {
-        let mut wtr = csv::Writer::from_path(path).map_err(|e| e.to_string())?;
-        wtr.write_record(&out_headers).map_err(|e| e.to_string())?;
+        let mut dedup_revise: HashMap<String, (String, i64, usize, String)> = HashMap::new();
 
-        for record in &all_records {
-            let title = get(record, c_title);
-            if title.is_empty() { continue; }
-            let norm_title = title.trim().to_lowercase();
+        {
+            let mut wtr = csv::Writer::from_path(path).map_err(|e| e.to_string())?;
+            wtr.write_record(&out_headers).map_err(|e| e.to_string())?;
 
-            if let Some((item_number, avail_qty)) = active_listings.get(&norm_title) {
-                // Count how many physical SKUs this row represents
+            for record in &all_records {
+                let title = get(record, c_title);
+                if title.is_empty() { continue; }
+                let norm_title = title.trim().to_lowercase();
+
+                if let Some((item_number, avail_qty)) = active_listings.get(&norm_title) {
+                    let raw_label = get(record, c_custom_label);
+                    let sku_count = if raw_label.is_empty() { 1 } else {
+                        raw_label.split(',').filter(|s| !s.trim().is_empty()).count().max(1)
+                    };
+                    let entry = dedup_revise
+                        .entry(norm_title)
+                        .or_insert((item_number.clone(), *avail_qty, 0, title.clone()));
+                    entry.2 += sku_count;
+                    continue;
+                }
+
                 let raw_label = get(record, c_custom_label);
                 let sku_count = if raw_label.is_empty() { 1 } else {
                     raw_label.split(',').filter(|s| !s.trim().is_empty()).count().max(1)
                 };
-                let entry = dedup_revise
-                    .entry(norm_title)
-                    .or_insert((item_number.clone(), *avail_qty, 0, title.clone()));
-                entry.2 += sku_count;
-                continue; // don't emit a new-listing row for this title
+                let first_sku = raw_label.split(',').next().unwrap_or("").trim().to_string();
+
+                for row_idx in 0..sku_count {
+                    let label_val = if keep_first_sku && row_idx == 0 {
+                        first_sku.clone()
+                    } else {
+                        String::new()
+                    };
+                    let mut fields: Vec<String> = Vec::with_capacity(out_headers.len());
+                    if needs_action_col { fields.push("Add".to_string()); }
+                    for (i, s) in record.iter().enumerate() {
+                        if Some(i) == c_custom_label {
+                            fields.push(label_val.clone());
+                        } else {
+                            fields.push(s.to_string());
+                        }
+                    }
+                    if let Some(idx) = c_action_orig {
+                        if fields.get(idx).map(|s| s.is_empty()).unwrap_or(false) {
+                            fields[idx] = "Add".to_string();
+                        }
+                    }
+                    if needs_item_id_col  { fields.push(String::new()); }
+                    if needs_qty_col      { fields.push("1".to_string()); }
+                    wtr.write_record(&fields).map_err(|e| e.to_string())?;
+                }
             }
 
-            let raw_label = get(record, c_custom_label);
-            let sku_count = if raw_label.is_empty() {
-                1
-            } else {
-                raw_label.split(',').filter(|s| !s.trim().is_empty()).count().max(1)
-            };
-            let first_sku = raw_label.split(',').next().unwrap_or("").trim().to_string();
-
-            for row_idx in 0..sku_count {
-                let label_val = if keep_first_sku && row_idx == 0 {
-                    first_sku.clone()
-                } else {
-                    String::new()
-                };
-                let mut fields: Vec<String> = Vec::with_capacity(out_headers.len());
-                // Prepend Action=Add if we added the column (so it stays first)
-                if needs_action_col { fields.push("Add".to_string()); }
-                // Original record fields (clearing custom_label)
-                for (i, s) in record.iter().enumerate() {
-                    if Some(i) == c_custom_label {
-                        fields.push(label_val.clone());
-                    } else {
-                        fields.push(s.to_string());
-                    }
-                }
-                // If Action column already existed in original but is blank, set Add
-                if let Some(idx) = c_action_orig {
-                    if fields.get(idx).map(|s| s.is_empty()).unwrap_or(false) {
-                        fields[idx] = "Add".to_string();
-                    }
-                }
-                // Append remaining new columns
-                if needs_item_id_col  { fields.push(String::new()); }
-                if needs_qty_col      { fields.push("1".to_string()); }
+            for (_, (item_number, avail_qty, new_count, display_title)) in &dedup_revise {
+                let total_qty = avail_qty + *new_count as i64;
+                let mut fields: Vec<String> = vec![String::new(); out_headers.len()];
+                if let Some(idx) = c_action_out  { fields[idx] = "Revise".to_string(); }
+                if let Some(idx) = c_item_id_out { fields[idx] = item_number.clone(); }
+                if let Some(idx) = c_qty_out     { fields[idx] = total_qty.to_string(); }
+                if let Some(orig_idx) = c_title  { fields[orig_idx + orig_offset] = display_title.clone(); }
                 wtr.write_record(&fields).map_err(|e| e.to_string())?;
             }
+
+            wtr.flush().map_err(|e| e.to_string())?;
         }
 
-        // Append one Revise row per deduplicated title
-        for (_, (item_number, avail_qty, new_count, display_title)) in &dedup_revise {
-            let total_qty = avail_qty + *new_count as i64;
-            let mut fields: Vec<String> = vec![String::new(); out_headers.len()];
-            if let Some(idx) = c_action_out  { fields[idx] = "Revise".to_string(); }
-            if let Some(idx) = c_item_id_out { fields[idx] = item_number.clone(); }
-            if let Some(idx) = c_qty_out     { fields[idx] = total_qty.to_string(); }
-            // c_title is an index into the original headers; shift by orig_offset in output
-            if let Some(orig_idx) = c_title  { fields[orig_idx + orig_offset] = display_title.clone(); }
-            wtr.write_record(&fields).map_err(|e| e.to_string())?;
-        }
-
-        wtr.flush().map_err(|e| e.to_string())?;
+        deduped_count = dedup_revise.values().map(|v| v.2).sum();
+        revise_rows_added = dedup_revise.len();
     }
 
-    let deduped_count: usize = dedup_revise.values().map(|v| v.2).sum();
-    let revise_rows_added: usize = dedup_revise.len();
-
     let mut rows_imported = 0usize;
+    let mut chaos_card_num: i64 = 0;
 
     for record in all_records {
         let title = get(&record, c_title);
@@ -506,19 +524,31 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
             continue;
         }
 
-        // Split comma-separated custom labels — one listing may cover multiple
-        // physical cards each with their own SKU (e.g. "fb1-1-1-3, fb1-1-1-4").
-        // Each SKU becomes its own inventory row so it can be fulfilled individually.
-        let raw_label = get(&record, c_custom_label);
-        let skus: Vec<Option<String>> = if raw_label.is_empty() {
-            vec![None]
+        // CDP: skip Revise rows — only import Add rows
+        if is_cdp {
+            let action = record.get(0).unwrap_or("").trim().to_lowercase();
+            if !action.is_empty() && action != "add" {
+                continue;
+            }
+        }
+
+        // CDP with chaos location: assign sequential chaos SKUs, ignoring CDP's own CustomLabel.
+        // CardUploader: split comma-separated labels into one row per SKU.
+        let skus: Vec<Option<String>> = if is_cdp && chaos_location.is_some() {
+            chaos_card_num += 1;
+            vec![Some(format!("{}-{}", chaos_location.unwrap(), chaos_card_num))]
         } else {
-            let parts: Vec<String> = raw_label
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            parts.into_iter().map(Some).collect()
+            let raw_label = get(&record, c_custom_label);
+            if raw_label.is_empty() {
+                vec![None]
+            } else {
+                let parts: Vec<String> = raw_label
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                parts.into_iter().map(Some).collect()
+            }
         };
 
         // Shared fields for this listing row

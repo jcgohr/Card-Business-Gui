@@ -262,7 +262,7 @@ export default function InventoryManager() {
     }
   }
 
-  async function doImport(schemaId: number | null, keepFirstSku: boolean) {
+  async function doImport(schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
     if (!pendingImport) return;
     setPendingImport(null);
     setLoading(true);
@@ -272,8 +272,11 @@ export default function InventoryManager() {
         path: pendingImport.path,
         schemaId,
         keepFirstSku,
+        format,
+        chaosLocation,
       });
-      let msg = `Imported ${result.rows_imported} items. CSV updated for eBay upload.`;
+      let msg = `Imported ${result.rows_imported} items.`;
+      if (format === "carduploader") msg += " CSV updated for eBay upload.";
       if (result.revise_rows_added > 0) {
         msg += ` ${result.deduped_count} SKU${result.deduped_count !== 1 ? "s" : ""} matched existing listings — ${result.revise_rows_added} Revise row${result.revise_rows_added !== 1 ? "s" : ""} added instead of new listings.`;
       }

@@ -1011,16 +1011,24 @@ fn preview_inventory_csv(path: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+fn detect_inventory_format(path: String) -> Result<String, String> {
+    let p = std::path::Path::new(&path);
+    db::detect_inventory_format(p)
+}
+
+#[tauri::command]
 fn import_inventory_csv(
     state: tauri::State<'_, Arc<AppState>>,
     path: String,
     schema_id: Option<i64>,
     keep_first_sku: bool,
+    format: Option<String>,
+    chaos_location: Option<String>,
 ) -> Result<db::ImportResult, String> {
     let conn = state.db.lock().unwrap();
     let p = std::path::Path::new(&path);
     let filename = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-    db::import_inventory(&conn, p, &filename, schema_id, keep_first_sku)
+    db::import_inventory(&conn, p, &filename, schema_id, keep_first_sku, format.as_deref(), chaos_location.as_deref())
 }
 
 #[tauri::command]
@@ -1279,6 +1287,7 @@ pub fn run() {
             get_sku_schemas,
             create_sku_schema,
             delete_sku_schema,
+            detect_inventory_format,
             preview_inventory_csv,
             import_active_listings_csv,
             get_active_listings_count,
