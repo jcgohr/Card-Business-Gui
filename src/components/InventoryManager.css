@@ -627,3 +627,110 @@ tr.inv-row--selected:hover td {
 .inv-badge--listed   { background: var(--accent-dim);              color: var(--accent); }
 .inv-badge--sold     { background: rgba(96, 165, 250, 0.15);       color: #60a5fa; }
 .inv-badge--unlisted { background: rgba(136, 136, 136, 0.15);      color: var(--text-muted); }
+
+/* ── SKU conflict modal ──────────────────────────────── */
+
+.inv-conflict-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inv-conflict-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 480px;
+  max-width: 95vw;
+  max-height: 75vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+
+.inv-conflict-title {
+  margin: 0;
+  padding: 1rem 1.25rem 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f59e0b;
+  border-bottom: 1px solid var(--border);
+}
+
+.inv-conflict-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 1.25rem;
+}
+
+.inv-conflict-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  gap: 0.75rem;
+}
+
+.inv-conflict-item:last-child { border-bottom: none; }
+
+.inv-conflict-sku {
+  font-family: monospace;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+
+.inv-conflict-tags {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.inv-conflict-tag {
+  font-size: 0.7rem;
+  padding: 0.15em 0.5em;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.inv-conflict-tag--db  { background: rgba(239,68,68,0.15); color: #f87171; }
+.inv-conflict-tag--dup { background: rgba(245,158,11,0.15); color: #f59e0b; }
+
+.inv-conflict-more {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.inv-conflict-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.inv-conflict-cancel {
+  font-size: 0.875rem;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.inv-conflict-proceed {
+  font-size: 0.875rem;
+  background: rgba(239,68,68,0.15);
+  border-color: #f87171;
+  color: #f87171;
+}
+
+.inv-conflict-proceed:hover {
+  background: #ef4444;
+  color: #fff;
+}

@@ -338,6 +338,124 @@ pub fn detect_inventory_format(path: &Path) -> Result<String, String> {
     Ok(if header.contains("siteid") { "carddealerpro".to_string() } else { "carduploader".to_string() })
 }
 
+#[derive(Serialize)]
+pub struct SkuConflict {
+    pub sku: String,
+    pub files: Vec<String>,    // filenames within the upload that share this SKU
+    pub in_db: bool,           // already exists in inventory_items
+}
+
+#[derive(Serialize)]
+pub struct SkuCheckResult {
+    pub conflicts: Vec<SkuConflict>,
+}
+
+fn extract_skus_from_path(
+    path: &Path,
+    filename: &str,
+    format_hint: Option<&str>,
+    chaos_location: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let raw = std::fs::read(path).map_err(|e| e.to_string())?;
+    let data = skip_empty_leading_rows(strip_bom(raw));
+    let mut rdr = csv::Reader::from_reader(data.as_slice());
+    let headers: Vec<String> = rdr
+        .headers()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let is_cdp = match format_hint {
+        Some("carddealerpro") => true,
+        Some("carduploader")  => false,
+        _ => headers.first().map(|h| h.to_lowercase().contains("siteid")).unwrap_or(false),
+    };
+
+    let c_title        = col(&headers, &["title", "item title"]);
+    let c_custom_label = col(&headers, &["custom label (sku)", "custom label", "customlabelsku", "customlabel", "sku", "seller sku"]);
+
+    let mut skus = Vec::new();
+    let mut chaos_num: i64 = 0;
+
+    for result in rdr.records() {
+        let record = result.map_err(|e| e.to_string())?;
+        let title = get(&record, c_title);
+        if title.is_empty() { continue; }
+
+        if is_cdp {
+            let action = record.get(0).unwrap_or("").trim().to_lowercase();
+            if !action.is_empty() && action != "add" { continue; }
+            if let Some(loc) = chaos_location {
+                chaos_num += 1;
+                skus.push(format!("{}-{}", loc, chaos_num));
+            }
+        } else {
+            let raw_label = get(&record, c_custom_label);
+            if !raw_label.is_empty() {
+                for part in raw_label.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    skus.push(part.to_string());
+                }
+            }
+        }
+    }
+    let _ = filename; // used by caller for conflict reporting
+    Ok(skus)
+}
+
+pub fn check_sku_conflicts(
+    conn: &Connection,
+    paths: &[(String, String)],  // (path, filename)
+    format_hint: Option<&str>,
+    chaos_location: Option<&str>,
+) -> Result<SkuCheckResult, String> {
+    // Collect SKUs per file
+    let mut sku_to_files: HashMap<String, Vec<String>> = HashMap::new();
+    for (path, filename) in paths {
+        let skus = extract_skus_from_path(Path::new(path), filename, format_hint, chaos_location)?;
+        for sku in skus {
+            sku_to_files.entry(sku).or_default().push(filename.clone());
+        }
+    }
+
+    // Find SKUs with conflicts within the upload set
+    let upload_dupes: HashSet<String> = sku_to_files
+        .iter()
+        .filter(|(_, files)| files.len() > 1)
+        .map(|(sku, _)| sku.clone())
+        .collect();
+
+    // Check which SKUs already exist in the DB
+    let all_skus: Vec<&String> = sku_to_files.keys().collect();
+    let mut db_skus: HashSet<String> = HashSet::new();
+    // Query in batches of 500 to avoid SQLite variable limits
+    for chunk in all_skus.chunks(500) {
+        let placeholders = chunk.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect::<Vec<_>>().join(",");
+        let sql = format!("SELECT custom_label FROM inventory_items WHERE custom_label IN ({})", placeholders);
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let found: Vec<String> = stmt
+            .query_map(params.as_slice(), |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        db_skus.extend(found);
+    }
+
+    let mut conflicts: Vec<SkuConflict> = sku_to_files
+        .into_iter()
+        .filter(|(sku, files)| files.len() > 1 || db_skus.contains(sku.as_str()))
+        .map(|(sku, files)| SkuConflict {
+            in_db: db_skus.contains(&sku),
+            files: if upload_dupes.contains(&sku) { files } else { vec![] },
+            sku,
+        })
+        .collect();
+    conflicts.sort_by(|a, b| a.sku.cmp(&b.sku));
+
+    Ok(SkuCheckResult { conflicts })
+}
+
 pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_id: Option<i64>, keep_first_sku: bool, format_hint: Option<&str>, chaos_location: Option<&str>) -> Result<ImportResult, String> {
     let raw = std::fs::read(path).map_err(|e| e.to_string())?;
     let data = skip_empty_leading_rows(strip_bom(raw));
@@ -1412,6 +1530,7 @@ pub fn mark_packed(conn: &Connection, order_id: i64) -> Result<(), String> {
         params![order_id],
     ).map_err(|e| e.to_string())?;
 
+    // Mark directly linked inventory items as sold
     conn.execute(
         "UPDATE inventory_items SET status = 'sold'
          WHERE id IN (
@@ -1420,6 +1539,51 @@ pub fn mark_packed(conn: &Connection, order_id: i64) -> Result<(), String> {
          )",
         params![order_id],
     ).map_err(|e| e.to_string())?;
+
+    // For order items without a direct link, resolve by title match and mark sold
+    let unlinked: Vec<(i64, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT oi.id, COALESCE(oi.item_title,'') FROM order_items oi
+             WHERE oi.order_id = ?1
+               AND oi.inventory_item_id IS NULL
+               AND oi.item_title IS NOT NULL AND oi.item_title != ''"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![order_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        rows
+    };
+
+    let mut used_ids: HashSet<i64> = HashSet::new();
+    for (oi_id, title) in unlinked {
+        let candidates: Vec<i64> = {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM inventory_items
+                 WHERE LOWER(TRIM(title)) = LOWER(TRIM(?1)) AND status != 'sold'
+                 ORDER BY id"
+            ).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params![title], |r| r.get(0))
+                .map_err(|e| e.to_string())?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| e.to_string())?;
+            rows
+        };
+        for inv_id in candidates {
+            if !used_ids.contains(&inv_id) {
+                used_ids.insert(inv_id);
+                conn.execute(
+                    "UPDATE order_items SET inventory_item_id = ?1 WHERE id = ?2",
+                    params![inv_id, oi_id],
+                ).map_err(|e| e.to_string())?;
+                conn.execute(
+                    "UPDATE inventory_items SET status = 'sold' WHERE id = ?1",
+                    params![inv_id],
+                ).map_err(|e| e.to_string())?;
+                break;
+            }
+        }
+    }
 
     Ok(())
 }

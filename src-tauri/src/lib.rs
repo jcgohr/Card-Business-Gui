@@ -1028,6 +1028,17 @@ fn detect_inventory_format(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn check_sku_conflicts(
+    state: tauri::State<'_, Arc<AppState>>,
+    paths: Vec<(String, String)>,  // (path, filename)
+    format: Option<String>,
+    chaos_location: Option<String>,
+) -> Result<db::SkuCheckResult, String> {
+    let conn = state.db.lock().unwrap();
+    db::check_sku_conflicts(&conn, &paths, format.as_deref(), chaos_location.as_deref())
+}
+
+#[tauri::command]
 fn import_inventory_csv(
     state: tauri::State<'_, Arc<AppState>>,
     path: String,
@@ -1288,6 +1299,7 @@ pub fn run() {
             process_all_subfolders,
             test_auth,
             import_inventory_csv,
+            check_sku_conflicts,
             import_orders_csv,
             get_inventory_items,
             get_orders_with_items,

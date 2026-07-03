@@ -82,6 +82,8 @@ export default function InventoryManager() {
   const [pendingDelete, setPendingDelete] = useState<number | null>(null);
   const [pendingImport, setPendingImport] = useState<{ path: string; filename: string } | null>(null);
   const [pendingBulkImport, setPendingBulkImport] = useState<{ path: string; filename: string }[] | null>(null);
+  const [skuConflicts, setSkuConflicts] = useState<{ sku: string; files: string[]; in_db: boolean }[] | null>(null);
+  const [pendingImportArgs, setPendingImportArgs] = useState<{ files: { path: string; filename: string }[]; schemaId: number | null; keepFirstSku: boolean; format: "carddealerpro" | "carduploader"; chaosLocation: string | null } | null>(null);
   const [confirmClearActive, setConfirmClearActive] = useState(false);
 
   // Detail panel
@@ -263,24 +265,7 @@ export default function InventoryManager() {
     }
   }
 
-  async function handleBulkImport() {
-    try {
-      const paths = await invoke<string[]>("select_files", {
-        filterName: "CSV Files",
-        filterExt: "csv",
-      });
-      if (!paths.length) return;
-      const files = paths.map(p => ({ path: p, filename: p.split(/[\\/]/).pop() ?? p }));
-      setPendingBulkImport(files);
-    } catch (e) {
-      setStatusMsg({ text: `Failed to open file picker: ${e}`, kind: "err" });
-    }
-  }
-
-  async function doBulkImport(schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
-    const files = pendingBulkImport;
-    if (!files) return;
-    setPendingBulkImport(null);
+  async function runImport(files: { path: string; filename: string }[], schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
     setLoading(true);
     setStatusMsg(null);
     let totalImported = 0;
@@ -303,8 +288,9 @@ export default function InventoryManager() {
         errors.push(`${file.filename}: ${e}`);
       }
     }
-    let msg = `Bulk import: ${totalImported} items from ${files.length} file${files.length !== 1 ? "s" : ""}.`;
-    if (format === "carduploader") msg += " CSVs updated for eBay upload.";
+    const plural = files.length > 1;
+    let msg = `Imported ${totalImported} items${plural ? ` from ${files.length} files` : ""}.`;
+    if (format === "carduploader") msg += plural ? " CSVs updated for eBay upload." : " CSV updated for eBay upload.";
     if (totalRevise > 0) msg += ` ${totalDeduped} SKU${totalDeduped !== 1 ? "s" : ""} deduped — ${totalRevise} Revise row${totalRevise !== 1 ? "s" : ""} added.`;
     if (errors.length) msg += ` Errors: ${errors.join("; ")}`;
     setStatusMsg({ text: msg, kind: errors.length ? "err" : "ok" });
@@ -312,31 +298,50 @@ export default function InventoryManager() {
     setLoading(false);
   }
 
+  async function checkAndImport(files: { path: string; filename: string }[], schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
+    try {
+      const pathPairs = files.map(f => [f.path, f.filename] as [string, string]);
+      const result = await invoke<{ conflicts: { sku: string; files: string[]; in_db: boolean }[] }>(
+        "check_sku_conflicts",
+        { paths: pathPairs, format, chaosLocation }
+      );
+      if (result.conflicts.length > 0) {
+        setSkuConflicts(result.conflicts);
+        setPendingImportArgs({ files, schemaId, keepFirstSku, format, chaosLocation });
+        return;
+      }
+    } catch {
+      // If check fails, proceed anyway
+    }
+    await runImport(files, schemaId, keepFirstSku, format, chaosLocation);
+  }
+
+  async function handleBulkImport() {
+    try {
+      const paths = await invoke<string[]>("select_files", {
+        filterName: "CSV Files",
+        filterExt: "csv",
+      });
+      if (!paths.length) return;
+      const files = paths.map(p => ({ path: p, filename: p.split(/[\\/]/).pop() ?? p }));
+      setPendingBulkImport(files);
+    } catch (e) {
+      setStatusMsg({ text: `Failed to open file picker: ${e}`, kind: "err" });
+    }
+  }
+
+  async function doBulkImport(schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
+    const files = pendingBulkImport;
+    if (!files) return;
+    setPendingBulkImport(null);
+    await checkAndImport(files, schemaId, keepFirstSku, format, chaosLocation);
+  }
+
   async function doImport(schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
     if (!pendingImport) return;
+    const file = pendingImport;
     setPendingImport(null);
-    setLoading(true);
-    setStatusMsg(null);
-    try {
-      const result = await invoke<ImportResult>("import_inventory_csv", {
-        path: pendingImport.path,
-        schemaId,
-        keepFirstSku,
-        format,
-        chaosLocation,
-      });
-      let msg = `Imported ${result.rows_imported} items.`;
-      if (format === "carduploader") msg += " CSV updated for eBay upload.";
-      if (result.revise_rows_added > 0) {
-        msg += ` ${result.deduped_count} SKU${result.deduped_count !== 1 ? "s" : ""} matched existing listings — ${result.revise_rows_added} Revise row${result.revise_rows_added !== 1 ? "s" : ""} added instead of new listings.`;
-      }
-      setStatusMsg({ text: msg, kind: "ok" });
-      await loadData();
-    } catch (e) {
-      setStatusMsg({ text: `Import failed: ${e}`, kind: "err" });
-    } finally {
-      setLoading(false);
-    }
+    await checkAndImport([file], schemaId, keepFirstSku, format, chaosLocation);
   }
 
   async function handleImportActiveListings() {
@@ -438,6 +443,41 @@ export default function InventoryManager() {
           onConfirm={doBulkImport}
           onCancel={() => setPendingBulkImport(null)}
         />
+      )}
+
+      {skuConflicts && pendingImportArgs && (
+        <div className="inv-conflict-backdrop" onClick={() => { setSkuConflicts(null); setPendingImportArgs(null); }}>
+          <div className="inv-conflict-modal" onClick={e => e.stopPropagation()}>
+            <p className="inv-conflict-title">SKU conflicts detected</p>
+            <div className="inv-conflict-list">
+              {skuConflicts.slice(0, 20).map(c => (
+                <div key={c.sku} className="inv-conflict-item">
+                  <span className="inv-conflict-sku">{c.sku}</span>
+                  <span className="inv-conflict-tags">
+                    {c.in_db && <span className="inv-conflict-tag inv-conflict-tag--db">already in DB</span>}
+                    {c.files.length > 1 && <span className="inv-conflict-tag inv-conflict-tag--dup">duplicate in upload</span>}
+                  </span>
+                </div>
+              ))}
+              {skuConflicts.length > 20 && (
+                <p className="inv-conflict-more">…and {skuConflicts.length - 20} more</p>
+              )}
+            </div>
+            <div className="inv-conflict-footer">
+              <button className="inv-conflict-cancel" onClick={() => { setSkuConflicts(null); setPendingImportArgs(null); }}>
+                Cancel
+              </button>
+              <button className="inv-conflict-proceed" onClick={async () => {
+                const args = pendingImportArgs;
+                setSkuConflicts(null);
+                setPendingImportArgs(null);
+                await runImport(args.files, args.schemaId, args.keepFirstSku, args.format, args.chaosLocation);
+              }}>
+                Import anyway
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="inv-header">
