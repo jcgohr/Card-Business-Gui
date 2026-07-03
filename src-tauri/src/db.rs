@@ -1390,21 +1390,24 @@ pub fn get_pick_sheet(conn: &Connection, fulfillment_id: i64) -> Result<Vec<Pick
         collected
     };
 
-    // Seed used_ids with inventory items that are already directly linked,
-    // so the title-match fallback below doesn't double-assign them.
+    // Seed used_ids with all directly linked inventory items so title-match
+    // fallback below doesn't double-assign the same physical card across orders.
     let mut used_ids: HashSet<i64> = raw.iter().filter_map(|r| r.inv_item_id).collect();
 
     let mut result = Vec::new();
     for row in raw {
-        // Always resolve location from our inventory, not from what eBay put in the order CSV.
-        // Priority:
-        //   1. Linked inventory item's custom_label (set at import time via title match)
-        //   2. Title-match fallback against unsold inventory (catches orders imported before inventory)
-        //   3. Empty — no location known
-        let custom_label = if !row.inv_label.is_empty() {
-            row.inv_label
-        } else if !row.item_title.is_empty() {
-            // Title-match fallback: pick the first non-sold, not-yet-used copy
+        let qty = row.quantity.max(1) as usize;
+
+        // Collect one location per copy needed.
+        // Copy 1: use the directly linked item's label (already claimed via used_ids seed).
+        // Remaining copies (or copy 1 if no direct link): title-match against unsold inventory.
+        let mut labels: Vec<String> = Vec::new();
+
+        if !row.inv_label.is_empty() {
+            labels.push(row.inv_label.clone());
+        }
+
+        if labels.len() < qty && !row.item_title.is_empty() {
             let candidates: Vec<(i64, String)> = {
                 let mut s = conn.prepare(
                     "SELECT id, COALESCE(custom_label,'') FROM inventory_items
@@ -1417,28 +1420,31 @@ pub fn get_pick_sheet(conn: &Connection, fulfillment_id: i64) -> Result<Vec<Pick
                     .map_err(|e| e.to_string())?;
                 c
             };
-
-            let mut found = String::new();
             for (id, label) in candidates {
+                if labels.len() >= qty { break; }
                 if !used_ids.contains(&id) {
                     used_ids.insert(id);
-                    found = label;
-                    break;
+                    labels.push(label);
                 }
             }
-            found
-        } else {
-            String::new()
-        };
+        }
 
-        result.push(PickSheetItem {
-            order_id:     row.order_id,
-            order_number: row.order_number,
-            recipient:    row.recipient,
-            custom_label,
-            item_title:   row.item_title,
-            quantity:     row.quantity,
-        });
+        // Pad with empty strings if we couldn't find enough inventory copies.
+        while labels.len() < qty {
+            labels.push(String::new());
+        }
+
+        // Emit one PickSheetItem per physical copy needed.
+        for label in labels {
+            result.push(PickSheetItem {
+                order_id:     row.order_id,
+                order_number: row.order_number.clone(),
+                recipient:    row.recipient.clone(),
+                custom_label: label,
+                item_title:   row.item_title.clone(),
+                quantity:     row.quantity,
+            });
+        }
     }
 
     Ok(result)

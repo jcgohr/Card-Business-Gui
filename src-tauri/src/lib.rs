@@ -1268,6 +1268,17 @@ fn print_webview(window: tauri::WebviewWindow) -> Result<(), String> {
     window.print().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn open_print_html(html: String) -> Result<(), String> {
+    let path = std::env::temp_dir().join("pick_sheet_print.html");
+    std::fs::write(&path, html).map_err(|e| e.to_string())?;
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -1323,6 +1334,7 @@ pub fn run() {
             get_pack_orders,
             get_pick_sheet,
             print_webview,
+            open_print_html,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

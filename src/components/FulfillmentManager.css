@@ -667,7 +667,8 @@
   .app-shell { display: block !important; }
   .app-main  { overflow: visible !important; height: auto !important; }
   .ff        { height: auto !important; overflow: visible !important; padding: 0 !important; }
-  .ff-picksheet { overflow: visible !important; }
+  .ff-picksheet { overflow: visible !important; height: auto !important; flex: none !important; }
+  .ff-ps-table  { overflow: visible !important; height: auto !important; flex: none !important; }
 
   .ff-ps-print-header {
     display: flex !important;

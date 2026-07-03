@@ -258,6 +258,48 @@ export default function FulfillmentManager() {
   }
   const orderNumMap = new Map(seenOrderIds.map((id, idx) => [id, idx + 1]));
 
+  function printPickSheet() {
+    const allItems = [...withSku, ...withoutSku];
+    const rows = allItems.map((item, idx) => {
+      const num = orderNumMap.get(item.order_id) ?? "";
+      const loc = item.custom_label || "—";
+      const title = item.item_title || "—";
+      const bg = idx % 2 === 1 ? "#f8f8f8" : "#ffffff";
+      return `<tr style="background:${bg}">
+        <td style="padding:4px 8px;border:1px solid #ccc;font-weight:700;color:#333">${num}</td>
+        <td style="padding:4px 8px;border:1px solid #ccc;font-family:monospace">${loc}</td>
+        <td style="padding:4px 8px;border:1px solid #ccc">${title}</td>
+      </tr>`;
+    }).join("");
+
+    const date = selectedBatch ? new Date(selectedBatch.imported_at).toLocaleDateString() : "";
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Pick Sheet</title>
+<style>
+  body { font-family: sans-serif; font-size: 12px; margin: 1cm; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .meta { font-size: 10px; color: #555; margin-bottom: 14px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #f0f0f0; padding: 5px 8px; border: 1px solid #999; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; text-align: left; }
+  tr { page-break-inside: avoid; }
+</style>
+</head><body>
+<h1>Pick Sheet</h1>
+<p class="meta">${date} &nbsp;·&nbsp; ${allItems.length} item${allItems.length !== 1 ? "s" : ""} &nbsp;·&nbsp; ${seenOrderIds.length} order${seenOrderIds.length !== 1 ? "s" : ""}</p>
+<table>
+  <thead><tr>
+    <th style="width:3rem">#</th>
+    <th style="width:10rem">Location</th>
+    <th>Card</th>
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<script>window.onload = () => window.print();<\/script>
+</body></html>`;
+
+    invoke("open_print_html", { html }).catch(e => alert(`Print error: ${e}`));
+  }
+
   const currentPackOrder = packOrders[currentOrderIdx] ?? null;
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -288,7 +330,7 @@ export default function FulfillmentManager() {
         <div className="ff-header-right">
           {selectedBatch && phase === "picksheet" && (
             <>
-              <button className="ff-ps-print-btn" onClick={() => invoke("print_webview")}>Print</button>
+              <button className="ff-ps-print-btn" onClick={printPickSheet}>Print</button>
               <button className="ff-begin-pick-btn" onClick={beginPick}>Begin Pick →</button>
             </>
           )}
