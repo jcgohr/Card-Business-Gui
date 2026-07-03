@@ -31,6 +31,7 @@ interface PackItem {
   custom_label: string;
   item_title: string;
   pic_urls: string;
+  quantity: number;
 }
 
 interface PackOrder {
@@ -438,41 +439,47 @@ export default function FulfillmentManager() {
           <div className="ff-pack-recipient">{currentPackOrder.recipient}</div>
           {packViewMode === "detail" ? (
             <div className="ff-pack-cards">
-              {currentPackOrder.items.map((item, idx) => {
-                const pics = parsePicUrls(item.pic_urls);
-                return (
-                  <div key={idx} className="ff-pack-card">
-                    <div className="ff-pack-card-img-wrap">
-                      {pics.length > 0 ? (
-                        pics.slice(0, 2).map((url, i) => (
-                          <img key={i} src={url} alt={i === 0 ? "Front" : "Back"} className="ff-pack-card-img" />
-                        ))
-                      ) : (
-                        <div className="ff-pack-card-img-placeholder">No image</div>
-                      )}
+              {currentPackOrder.items.flatMap((item, idx) =>
+                Array.from({ length: Math.max(1, item.quantity) }, (_, copy) => {
+                  const pics = parsePicUrls(item.pic_urls);
+                  return (
+                    <div key={`${idx}-${copy}`} className="ff-pack-card">
+                      <div className="ff-pack-card-img-wrap">
+                        {pics.length > 0 ? (
+                          pics.slice(0, 2).map((url, i) => (
+                            <img key={i} src={url} alt={i === 0 ? "Front" : "Back"} className="ff-pack-card-img" />
+                          ))
+                        ) : (
+                          <div className="ff-pack-card-img-placeholder">No image</div>
+                        )}
+                      </div>
+                      <div className="ff-pack-card-info">
+                        <span className="ff-pack-card-title">{item.item_title || "—"}</span>
+                        {item.custom_label && <span className="ff-pack-card-sku">{item.custom_label}</span>}
+                        {item.quantity > 1 && <span className="ff-pack-card-qty">×{item.quantity} — copy {copy + 1}</span>}
+                      </div>
                     </div>
-                    <div className="ff-pack-card-info">
-                      <span className="ff-pack-card-title">{item.item_title || "—"}</span>
-                      {item.custom_label && <span className="ff-pack-card-sku">{item.custom_label}</span>}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           ) : (
             <div className="ff-pack-grid">
-              {currentPackOrder.items.map((item, idx) => {
-                const pics = parsePicUrls(item.pic_urls);
-                return (
-                  <div key={idx} className="ff-pack-grid-item">
-                    {pics.length > 0
-                      ? <img src={pics[0]} alt="Front" className="ff-pack-grid-img" />
-                      : <div className="ff-pack-grid-img-placeholder">No image</div>
-                    }
-                    <span className="ff-pack-grid-title">{item.item_title || "—"}</span>
-                  </div>
-                );
-              })}
+              {currentPackOrder.items.flatMap((item, idx) =>
+                Array.from({ length: Math.max(1, item.quantity) }, (_, copy) => {
+                  const pics = parsePicUrls(item.pic_urls);
+                  return (
+                    <div key={`${idx}-${copy}`} className="ff-pack-grid-item">
+                      {pics.length > 0
+                        ? <img src={pics[0]} alt="Front" className="ff-pack-grid-img" />
+                        : <div className="ff-pack-grid-img-placeholder">No image</div>
+                      }
+                      <span className="ff-pack-grid-title">{item.item_title || "—"}</span>
+                      {item.quantity > 1 && <span className="ff-pack-grid-qty">×{item.quantity} ({copy + 1})</span>}
+                    </div>
+                  );
+                })
+              )}
             </div>
           )}
           <div className="ff-pack-footer">

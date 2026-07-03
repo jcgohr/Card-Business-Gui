@@ -220,6 +220,7 @@ pub struct PackItem {
     pub custom_label: String,
     pub item_title: String,
     pub pic_urls: String,
+    pub quantity: i64,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -1480,7 +1481,8 @@ pub fn get_pack_orders(conn: &Connection, fulfillment_id: i64) -> Result<Vec<Pac
                          WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
                            AND i2.status != 'sold' ORDER BY i2.id LIMIT 1),
                         ''
-                    )
+                    ),
+                    COALESCE(oi.quantity, 1)
              FROM order_items oi
              LEFT JOIN inventory_items inv ON inv.id = oi.inventory_item_id
              WHERE oi.order_id = ?1",
@@ -1492,6 +1494,7 @@ pub fn get_pack_orders(conn: &Connection, fulfillment_id: i64) -> Result<Vec<Pac
                     custom_label: row.get(0)?,
                     item_title:   row.get(1)?,
                     pic_urls:     row.get(2)?,
+                    quantity:     row.get(3)?,
                 })
             })
             .map_err(|e| e.to_string())?

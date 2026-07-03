@@ -373,6 +373,12 @@
   color: var(--text-muted);
 }
 
+.ff-pack-card-qty {
+  font-size: 0.75rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .ff-pack-view-btn {
   padding: 0.3em 0.75em;
   font-size: 0.8rem;
@@ -437,6 +443,12 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.ff-pack-grid-qty {
+  font-size: 0.7rem;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .ff-pack-footer {
