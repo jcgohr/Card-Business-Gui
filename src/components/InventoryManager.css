@@ -34,6 +34,18 @@
   font-size: 0.875rem;
 }
 
+.inv-bulk-import-btn {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.inv-bulk-import-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
 /* ── Active listings dedup bar ───────────────────────── */
 
 .inv-active-listings {

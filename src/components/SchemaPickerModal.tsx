@@ -20,6 +20,7 @@ interface Props {
 
 const DEFAULT_LABELS = ["Collection", "Box", "Section", "Card"];
 const CHAOS_SEGMENTS_KEY = "chaos_last_segments";
+const LAST_SCHEMA_KEY = "schema_last_id";
 
 function loadSavedSegments(): string[] {
   try {
@@ -50,7 +51,10 @@ function breakdownSku(sku: string, labels: string[]): { label: string; value: st
 export default function SchemaPickerModal({ path, filename, onConfirm, onCancel }: Props) {
   const [schemas, setSchemas] = useState<SkuSchema[]>([]);
   const [samples, setSamples] = useState<string[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(() => {
+    const v = localStorage.getItem(LAST_SCHEMA_KEY);
+    return v ? Number(v) : null;
+  });
   const [format, setFormat] = useState<CsvFormat>("carduploader");
   const [chaosSegments, setChaosSegments] = useState<string[]>(loadSavedSegments);
 
@@ -102,6 +106,10 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
     if (format === "carddealerpro" && chaosLocation) saveSegmentsForNext(chaosSegments);
   }
 
+  function commitSchema(id: number | null) {
+    if (id != null) localStorage.setItem(LAST_SCHEMA_KEY, String(id));
+  }
+
   async function handleImport() {
     if (newName.trim()) {
       setCreating(true);
@@ -111,6 +119,7 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
           segmentLabels: newLabels.filter(Boolean),
         });
         commitChaos();
+        commitSchema(schema.id);
         onConfirm(schema.id, keepFirstSku, format, chaosLocation);
       } catch (e) {
         alert(`Failed to create schema: ${e}`);
@@ -118,6 +127,7 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
       }
     } else {
       commitChaos();
+      commitSchema(selectedId);
       onConfirm(selectedId, keepFirstSku, format, chaosLocation);
     }
   }
@@ -305,7 +315,7 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
           {format === "carddealerpro" && !chaosLocation && (
             <span className="spm-chaos-required">Enter a chaos location above to import</span>
           )}
-          <button className="spm-skip" disabled={format === "carddealerpro" && !chaosLocation} onClick={() => { commitChaos(); onConfirm(null, keepFirstSku, format, chaosLocation); }}>
+          <button className="spm-skip" disabled={format === "carddealerpro" && !chaosLocation} onClick={() => { commitChaos(); commitSchema(selectedId); onConfirm(null, keepFirstSku, format, chaosLocation); }}>
             Import without schema
           </button>
           <div className="spm-footer-right">

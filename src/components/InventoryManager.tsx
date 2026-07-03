@@ -81,6 +81,7 @@ export default function InventoryManager() {
   const [statusMsg, setStatusMsg] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<number | null>(null);
   const [pendingImport, setPendingImport] = useState<{ path: string; filename: string } | null>(null);
+  const [pendingBulkImport, setPendingBulkImport] = useState<{ path: string; filename: string }[] | null>(null);
   const [confirmClearActive, setConfirmClearActive] = useState(false);
 
   // Detail panel
@@ -262,6 +263,55 @@ export default function InventoryManager() {
     }
   }
 
+  async function handleBulkImport() {
+    try {
+      const paths = await invoke<string[]>("select_files", {
+        filterName: "CSV Files",
+        filterExt: "csv",
+      });
+      if (!paths.length) return;
+      const files = paths.map(p => ({ path: p, filename: p.split(/[\\/]/).pop() ?? p }));
+      setPendingBulkImport(files);
+    } catch (e) {
+      setStatusMsg({ text: `Failed to open file picker: ${e}`, kind: "err" });
+    }
+  }
+
+  async function doBulkImport(schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
+    const files = pendingBulkImport;
+    if (!files) return;
+    setPendingBulkImport(null);
+    setLoading(true);
+    setStatusMsg(null);
+    let totalImported = 0;
+    let totalRevise = 0;
+    let totalDeduped = 0;
+    const errors: string[] = [];
+    for (const file of files) {
+      try {
+        const result = await invoke<ImportResult>("import_inventory_csv", {
+          path: file.path,
+          schemaId,
+          keepFirstSku,
+          format,
+          chaosLocation,
+        });
+        totalImported += result.rows_imported;
+        totalRevise   += result.revise_rows_added;
+        totalDeduped  += result.deduped_count;
+      } catch (e) {
+        errors.push(`${file.filename}: ${e}`);
+      }
+    }
+    let msg = `Bulk import: ${totalImported} items from ${files.length} file${files.length !== 1 ? "s" : ""}.`;
+    if (format === "carduploader") msg += " CSVs updated for eBay upload.";
+    if (totalRevise > 0) msg += ` ${totalDeduped} SKU${totalDeduped !== 1 ? "s" : ""} deduped — ${totalRevise} Revise row${totalRevise !== 1 ? "s" : ""} added.`;
+    if (errors.length) msg += ` Errors: ${errors.join("; ")}`;
+    setStatusMsg({ text: msg, kind: errors.length ? "err" : "ok" });
+    await loadData();
+    setLoading(false);
+  }
+
   async function doImport(schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
     if (!pendingImport) return;
     setPendingImport(null);
@@ -381,6 +431,15 @@ export default function InventoryManager() {
         />
       )}
 
+      {pendingBulkImport && (
+        <SchemaPickerModal
+          path={pendingBulkImport[0].path}
+          filename={`${pendingBulkImport.length} files — ${pendingBulkImport[0].filename}, …`}
+          onConfirm={doBulkImport}
+          onCancel={() => setPendingBulkImport(null)}
+        />
+      )}
+
       <div className="inv-header">
         <h2 className="inv-title">Inventory</h2>
         <div className="inv-header-actions">
@@ -419,7 +478,10 @@ export default function InventoryManager() {
             </button>
           </div>
           <button className="inv-import-btn" onClick={handleImport} disabled={loading}>
-            {loading ? "Importing…" : "Import CSV"}
+            Import CSV
+          </button>
+          <button className="inv-import-btn inv-bulk-import-btn" onClick={handleBulkImport} disabled={loading}>
+            Bulk Import
           </button>
         </div>
       </div>

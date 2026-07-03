@@ -966,6 +966,17 @@ async fn select_file(filter_name: String, filter_ext: String) -> Option<String> 
 }
 
 #[tauri::command]
+async fn select_files(filter_name: String, filter_ext: String) -> Vec<String> {
+    rfd::AsyncFileDialog::new()
+        .set_title("Select Files")
+        .add_filter(&filter_name, &[filter_ext.as_str()])
+        .pick_files()
+        .await
+        .map(|files| files.iter().map(|f| f.path().to_string_lossy().to_string()).collect())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
 fn preview_inventory_csv(path: String) -> Result<Vec<String>, String> {
     let raw = std::fs::read(&path).map_err(|e| e.to_string())?;
     let data = if raw.starts_with(&[0xEF, 0xBB, 0xBF]) { raw[3..].to_vec() } else { raw };
@@ -1270,6 +1281,7 @@ pub fn run() {
             get_sku_preview,
             select_directory,
             select_file,
+            select_files,
             start_watcher,
             stop_watcher,
             process_folder_manual,

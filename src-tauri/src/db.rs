@@ -1277,11 +1277,12 @@ pub fn get_pick_sheet(conn: &Connection, fulfillment_id: i64) -> Result<Vec<Pick
 
     let mut result = Vec::new();
     for row in raw {
-        let custom_label = if !row.order_label.is_empty() {
-            // SKU/label came directly from the order CSV
-            row.order_label
-        } else if !row.inv_label.is_empty() {
-            // Directly linked inventory item has a location label
+        // Always resolve location from our inventory, not from what eBay put in the order CSV.
+        // Priority:
+        //   1. Linked inventory item's custom_label (set at import time via title match)
+        //   2. Title-match fallback against unsold inventory (catches orders imported before inventory)
+        //   3. Empty — no location known
+        let custom_label = if !row.inv_label.is_empty() {
             row.inv_label
         } else if !row.item_title.is_empty() {
             // Title-match fallback: pick the first non-sold, not-yet-used copy
@@ -1350,17 +1351,16 @@ pub fn get_pack_orders(conn: &Connection, fulfillment_id: i64) -> Result<Vec<Pac
     let mut result = Vec::new();
     for (order_id, recipient) in orders {
         let mut item_stmt = conn.prepare(
-            "SELECT COALESCE(NULLIF(oi.custom_label,''), NULLIF(inv.custom_label,''),
+            "SELECT COALESCE(NULLIF(inv.custom_label,''),
                              (SELECT NULLIF(i2.custom_label,'') FROM inventory_items i2
                               WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
-                                AND i2.status != 'sold' LIMIT 1), ''),
+                                AND i2.status != 'sold' ORDER BY i2.id LIMIT 1), ''),
                     COALESCE(oi.item_title,''),
                     COALESCE(
                         NULLIF(inv.pic_urls,''),
                         (SELECT NULLIF(i2.pic_urls,'') FROM inventory_items i2
-                         WHERE i2.custom_label = oi.custom_label AND oi.custom_label != '' LIMIT 1),
-                        (SELECT NULLIF(i2.pic_urls,'') FROM inventory_items i2
-                         WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title)) LIMIT 1),
+                         WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
+                           AND i2.status != 'sold' ORDER BY i2.id LIMIT 1),
                         ''
                     )
              FROM order_items oi
