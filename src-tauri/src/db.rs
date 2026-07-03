@@ -532,11 +532,15 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
             }
         }
 
-        // CDP with chaos location: assign sequential chaos SKUs, ignoring CDP's own CustomLabel.
+        // CDP: always use generated chaos SKU (or None). Never read CDP's own CustomLabel — it's eBay-internal.
         // CardUploader: split comma-separated labels into one row per SKU.
-        let skus: Vec<Option<String>> = if is_cdp && chaos_location.is_some() {
-            chaos_card_num += 1;
-            vec![Some(format!("{}-{}", chaos_location.unwrap(), chaos_card_num))]
+        let skus: Vec<Option<String>> = if is_cdp {
+            if let Some(loc) = chaos_location {
+                chaos_card_num += 1;
+                vec![Some(format!("{}-{}", loc, chaos_card_num))]
+            } else {
+                vec![None]
+            }
         } else {
             let raw_label = get(&record, c_custom_label);
             if raw_label.is_empty() {

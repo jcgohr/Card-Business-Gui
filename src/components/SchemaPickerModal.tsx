@@ -19,6 +19,26 @@ interface Props {
 }
 
 const DEFAULT_LABELS = ["Collection", "Box", "Section", "Card"];
+const CHAOS_SEGMENTS_KEY = "chaos_last_segments";
+
+function loadSavedSegments(): string[] {
+  try {
+    const raw = localStorage.getItem(CHAOS_SEGMENTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return ["", "", ""];
+}
+
+function saveSegmentsForNext(segments: string[]) {
+  const next = [...segments];
+  const lastIdx = next.length - 1;
+  const n = parseInt(next[lastIdx], 10);
+  if (!isNaN(n)) next[lastIdx] = String(n + 1);
+  localStorage.setItem(CHAOS_SEGMENTS_KEY, JSON.stringify(next));
+}
 
 function breakdownSku(sku: string, labels: string[]): { label: string; value: string }[] {
   return sku.split("-").map((part, i) => ({
@@ -32,7 +52,7 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
   const [samples, setSamples] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [format, setFormat] = useState<CsvFormat>("carduploader");
-  const [chaosSegments, setChaosSegments] = useState<string[]>(["", "", ""]);
+  const [chaosSegments, setChaosSegments] = useState<string[]>(loadSavedSegments);
 
   // New schema form
   const [newName, setNewName] = useState("");
@@ -78,6 +98,10 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
     setNewLabels(prev => prev.filter((_, idx) => idx !== i));
   }
 
+  function commitChaos() {
+    if (format === "carddealerpro" && chaosLocation) saveSegmentsForNext(chaosSegments);
+  }
+
   async function handleImport() {
     if (newName.trim()) {
       setCreating(true);
@@ -86,12 +110,14 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
           name: newName.trim(),
           segmentLabels: newLabels.filter(Boolean),
         });
+        commitChaos();
         onConfirm(schema.id, keepFirstSku, format, chaosLocation);
       } catch (e) {
         alert(`Failed to create schema: ${e}`);
         setCreating(false);
       }
     } else {
+      commitChaos();
       onConfirm(selectedId, keepFirstSku, format, chaosLocation);
     }
   }
@@ -141,14 +167,18 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
               <div className="spm-chaos-segments">
                 {chaosSegments.map((seg, i) => (
                   <div key={i} className="spm-chaos-seg-row">
-                    <input
-                      className="spm-chaos-input"
-                      type="text"
-                      placeholder={i === 0 ? "box1" : String(i)}
-                      value={seg}
-                      onChange={e => setChaosSegments(prev => prev.map((s, idx) => idx === i ? e.target.value : s))}
-                    />
-                    {i < chaosSegments.length - 1 && <span className="spm-chaos-sep">–</span>}
+                    <div className="spm-chaos-seg-col">
+                      {activeLabels[i] && (
+                        <span className="spm-chaos-seg-label">{activeLabels[i]}</span>
+                      )}
+                      <input
+                        className="spm-chaos-input"
+                        type="text"
+                        placeholder={i === 0 ? "box1" : String(i)}
+                        value={seg}
+                        onChange={e => setChaosSegments(prev => prev.map((s, idx) => idx === i ? e.target.value : s))}
+                      />
+                    </div>
                     {chaosSegments.length > 1 && (
                       <button
                         className="spm-chaos-remove"
@@ -156,8 +186,15 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
                         title="Remove segment"
                       >✕</button>
                     )}
+                    <span className="spm-chaos-sep">–</span>
                   </div>
                 ))}
+                <div className="spm-chaos-seg-col spm-chaos-seg-col--auto">
+                  {activeLabels[chaosSegments.length] && (
+                    <span className="spm-chaos-seg-label">{activeLabels[chaosSegments.length]}</span>
+                  )}
+                  <span className="spm-chaos-auto">1, 2, 3…</span>
+                </div>
                 <button
                   className="spm-chaos-add"
                   onClick={() => setChaosSegments(prev => [...prev, ""])}
@@ -265,14 +302,17 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
               Keep first SKU in CustomLabel
             </label>
           )}
-          <button className="spm-skip" onClick={() => onConfirm(null, keepFirstSku, format, chaosLocation)}>
+          {format === "carddealerpro" && !chaosLocation && (
+            <span className="spm-chaos-required">Enter a chaos location above to import</span>
+          )}
+          <button className="spm-skip" disabled={format === "carddealerpro" && !chaosLocation} onClick={() => { commitChaos(); onConfirm(null, keepFirstSku, format, chaosLocation); }}>
             Import without schema
           </button>
           <div className="spm-footer-right">
             <button className="spm-cancel" onClick={onCancel}>Cancel</button>
             <button
               className="spm-confirm"
-              disabled={!canImport || creating}
+              disabled={!canImport || creating || (format === "carddealerpro" && !chaosLocation)}
               onClick={handleImport}
             >
               {creating ? "Creating…" : "Import →"}

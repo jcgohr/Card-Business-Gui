@@ -133,8 +133,36 @@
 
 .spm-chaos-seg-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.4rem;
+}
+
+.spm-chaos-seg-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.spm-chaos-seg-col--auto {
+  opacity: 0.5;
+}
+
+.spm-chaos-seg-label {
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.spm-chaos-auto {
+  font-size: 0.85rem;
+  font-family: monospace;
+  color: var(--text-muted);
+  padding: 0.3em 0.4em;
+  line-height: 1.4;
 }
 
 .spm-chaos-input {
@@ -147,6 +175,7 @@
 .spm-chaos-sep {
   font-size: 1.1rem;
   color: var(--text-muted);
+  padding-bottom: 0.3em;
 }
 
 .spm-chaos-remove {
@@ -438,6 +467,11 @@
   border-top: 1px solid var(--border);
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.spm-chaos-required {
+  font-size: 0.78rem;
+  color: #f59e0b;
 }
 
 .spm-keep-sku {
