@@ -832,6 +832,18 @@ pub fn import_orders(conn: &Connection, path: &Path, filename: &str) -> Result<I
             continue;
         }
 
+        // Skip summary/totals rows: no buyer identity and no item data.
+        {
+            let has_buyer = !get(&record, c_buyer_username).is_empty()
+                || !get(&record, c_buyer_name).is_empty()
+                || !get(&record, c_ship_name).is_empty();
+            let has_item = !get(&record, c_item_number).is_empty()
+                || !get(&record, c_item_title).is_empty();
+            if !has_buyer && !has_item {
+                continue;
+            }
+        }
+
         // --- Ensure order row exists -----------------------------------------
         let (order_id, is_new) = if let Some(&cached) = order_map.get(&order_number) {
             cached
