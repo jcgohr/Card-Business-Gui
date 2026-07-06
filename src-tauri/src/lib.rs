@@ -1111,10 +1111,10 @@ fn get_orders_with_items(
 #[tauri::command]
 fn mark_order_packed(
     state: tauri::State<'_, Arc<AppState>>,
-    order_id: i64,
+    order_ids: Vec<i64>,
 ) -> Result<(), String> {
     let conn = state.db.lock().unwrap();
-    db::mark_packed(&conn, order_id)
+    db::mark_packed(&conn, &order_ids)
 }
 
 #[tauri::command]

@@ -35,7 +35,7 @@ interface PackItem {
 }
 
 interface PackOrder {
-  order_id: number;
+  order_ids: number[];
   recipient: string;
   items: PackItem[];
 }
@@ -204,7 +204,7 @@ export default function FulfillmentManager() {
   const advance = useCallback(async () => {
     const order = packOrders[currentOrderIdx];
     if (!order) return;
-    try { await invoke("mark_order_packed", { orderId: order.order_id }); } catch {}
+    try { await invoke("mark_order_packed", { orderIds: order.order_ids }); } catch {}
 
     if (currentOrderIdx >= packOrders.length - 1) {
       const finalPackSecs = Math.floor((Date.now() - packStartMs) / 1000);
@@ -478,7 +478,14 @@ export default function FulfillmentManager() {
 
       {phase === "packing" && currentPackOrder && (
         <div className="ff-packing">
-          <div className="ff-pack-recipient">{currentPackOrder.recipient}</div>
+          <div className="ff-pack-recipient">
+            {currentPackOrder.recipient}
+            {currentPackOrder.order_ids.length > 1 && (
+              <span className="ff-pack-merged-badge">
+                {currentPackOrder.order_ids.length} orders merged
+              </span>
+            )}
+          </div>
           {packViewMode === "detail" ? (
             <div className="ff-pack-cards">
               {currentPackOrder.items.flatMap((item, idx) =>

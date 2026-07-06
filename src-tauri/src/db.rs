@@ -225,7 +225,7 @@ pub struct PackItem {
 
 #[derive(Serialize, Debug, Clone)]
 pub struct PackOrder {
-    pub order_id: i64,
+    pub order_ids: Vec<i64>,
     pub recipient: String,
     pub items: Vec<PackItem>,
 }
@@ -1498,55 +1498,87 @@ pub fn clear_fulfillments(conn: &Connection) -> Result<(), String> {
 }
 
 pub fn get_pack_orders(conn: &Connection, fulfillment_id: i64) -> Result<Vec<PackOrder>, String> {
-    let mut order_stmt = conn.prepare(
-        "SELECT o.id,
-                COALESCE(NULLIF(o.ship_to_name,''), NULLIF(o.buyer_name,''), NULLIF(o.buyer_username,''), 'Unknown')
-         FROM orders o
-         WHERE o.fulfillment_id = ?1 AND o.status = 'new'
-         ORDER BY o.id",
-    ).map_err(|e| e.to_string())?;
+    // Fetch all new orders with a buyer grouping key.
+    // Group key: buyer_username if available, else ship_to_name|ship_to_address1.
+    // Orders from the same buyer are merged into one pack step.
+    struct OrderRow { id: i64, recipient: String, buyer_key: String }
 
-    let orders: Vec<(i64, String)> = order_stmt
-        .query_map(params![fulfillment_id], |row| Ok((row.get(0)?, row.get(1)?)))
-        .map_err(|e| e.to_string())?
+    let order_rows: Vec<OrderRow> = {
+        let mut stmt = conn.prepare(
+            "SELECT o.id,
+                    COALESCE(NULLIF(o.ship_to_name,''), NULLIF(o.buyer_name,''), NULLIF(o.buyer_username,''), 'Unknown'),
+                    COALESCE(NULLIF(o.buyer_username,''), CAST(o.id AS TEXT))
+             FROM orders o
+             WHERE o.fulfillment_id = ?1 AND o.status = 'new'
+             ORDER BY o.id",
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![fulfillment_id], |row| {
+            Ok(OrderRow { id: row.get(0)?, recipient: row.get(1)?, buyer_key: row.get(2)? })
+        }).map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|e| e.to_string())?;
+        rows
+    };
+
+    // Group orders by buyer key, preserving first-seen order.
+    let mut group_keys: Vec<String> = Vec::new();
+    let mut group_index: HashMap<String, usize> = HashMap::new();
+    let mut group_recipients: Vec<String> = Vec::new();
+    let mut group_order_ids: Vec<Vec<i64>> = Vec::new();
+
+    for row in order_rows {
+        if let Some(&idx) = group_index.get(&row.buyer_key) {
+            group_order_ids[idx].push(row.id);
+        } else {
+            let idx = group_keys.len();
+            group_index.insert(row.buyer_key.clone(), idx);
+            group_keys.push(row.buyer_key);
+            group_recipients.push(row.recipient);
+            group_order_ids.push(vec![row.id]);
+        }
+    }
+
+    // For each group, fetch items for all constituent orders.
+    let item_sql =
+        "SELECT COALESCE(NULLIF(inv.custom_label,''),
+                         (SELECT NULLIF(i2.custom_label,'') FROM inventory_items i2
+                          WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
+                            AND i2.status != 'sold' ORDER BY i2.id LIMIT 1), ''),
+                COALESCE(oi.item_title,''),
+                COALESCE(
+                    NULLIF(inv.pic_urls,''),
+                    (SELECT NULLIF(i2.pic_urls,'') FROM inventory_items i2
+                     WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
+                       AND i2.status != 'sold' ORDER BY i2.id LIMIT 1),
+                    ''
+                ),
+                COALESCE(oi.quantity, 1)
+         FROM order_items oi
+         LEFT JOIN inventory_items inv ON inv.id = oi.inventory_item_id
+         WHERE oi.order_id = ?1";
 
     let mut result = Vec::new();
-    for (order_id, recipient) in orders {
-        let mut item_stmt = conn.prepare(
-            "SELECT COALESCE(NULLIF(inv.custom_label,''),
-                             (SELECT NULLIF(i2.custom_label,'') FROM inventory_items i2
-                              WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
-                                AND i2.status != 'sold' ORDER BY i2.id LIMIT 1), ''),
-                    COALESCE(oi.item_title,''),
-                    COALESCE(
-                        NULLIF(inv.pic_urls,''),
-                        (SELECT NULLIF(i2.pic_urls,'') FROM inventory_items i2
-                         WHERE LOWER(TRIM(i2.title)) = LOWER(TRIM(oi.item_title))
-                           AND i2.status != 'sold' ORDER BY i2.id LIMIT 1),
-                        ''
-                    ),
-                    COALESCE(oi.quantity, 1)
-             FROM order_items oi
-             LEFT JOIN inventory_items inv ON inv.id = oi.inventory_item_id
-             WHERE oi.order_id = ?1",
-        ).map_err(|e| e.to_string())?;
-
-        let items: Vec<PackItem> = item_stmt
-            .query_map(params![order_id], |row| {
+    for (i, order_ids) in group_order_ids.into_iter().enumerate() {
+        let mut items: Vec<PackItem> = Vec::new();
+        for &oid in &order_ids {
+            let mut stmt = conn.prepare(item_sql).map_err(|e| e.to_string())?;
+            let mut batch = stmt.query_map(params![oid], |row| {
                 Ok(PackItem {
                     custom_label: row.get(0)?,
                     item_title:   row.get(1)?,
                     pic_urls:     row.get(2)?,
                     quantity:     row.get(3)?,
                 })
-            })
-            .map_err(|e| e.to_string())?
+            }).map_err(|e| e.to_string())?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|e| e.to_string())?;
-
-        result.push(PackOrder { order_id, recipient, items });
+            items.append(&mut batch);
+        }
+        result.push(PackOrder {
+            order_ids,
+            recipient: group_recipients[i].clone(),
+            items,
+        });
     }
 
     Ok(result)
@@ -1572,39 +1604,47 @@ pub fn get_sync_status(conn: &Connection) -> Result<SyncStatus, String> {
     Ok(SyncStatus { last_active_at, inventory_imports_since_active })
 }
 
-pub fn mark_packed(conn: &Connection, order_id: i64) -> Result<(), String> {
-    conn.execute(
-        "UPDATE orders SET status = 'packed' WHERE id = ?1",
-        params![order_id],
-    ).map_err(|e| e.to_string())?;
-
-    // Mark directly linked inventory items as sold
-    conn.execute(
-        "UPDATE inventory_items SET status = 'sold'
-         WHERE id IN (
-             SELECT inventory_item_id FROM order_items
-             WHERE order_id = ?1 AND inventory_item_id IS NOT NULL
-         )",
-        params![order_id],
-    ).map_err(|e| e.to_string())?;
-
-    // For order items without a direct link, resolve by title match and mark sold
-    let unlinked: Vec<(i64, String)> = {
-        let mut stmt = conn.prepare(
-            "SELECT oi.id, COALESCE(oi.item_title,'') FROM order_items oi
-             WHERE oi.order_id = ?1
-               AND oi.inventory_item_id IS NULL
-               AND oi.item_title IS NOT NULL AND oi.item_title != ''"
-        ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![order_id], |row| Ok((row.get(0)?, row.get(1)?)))
-            .map_err(|e| e.to_string())?
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(|e| e.to_string())?;
-        rows
-    };
-
+pub fn mark_packed(conn: &Connection, order_ids: &[i64]) -> Result<(), String> {
     let mut used_ids: HashSet<i64> = HashSet::new();
-    for (oi_id, title) in unlinked {
+
+    for &order_id in order_ids {
+        conn.execute(
+            "UPDATE orders SET status = 'packed' WHERE id = ?1",
+            params![order_id],
+        ).map_err(|e| e.to_string())?;
+
+        // Mark directly linked inventory items as sold
+        conn.execute(
+            "UPDATE inventory_items SET status = 'sold'
+             WHERE id IN (
+                 SELECT inventory_item_id FROM order_items
+                 WHERE order_id = ?1 AND inventory_item_id IS NOT NULL
+             )",
+            params![order_id],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    // For order items without a direct link across all orders in the group,
+    // resolve by title match and mark sold (shared used_ids prevents double-assigning).
+    let mut all_unlinked: Vec<(i64, String)> = Vec::new();
+    for &order_id in order_ids {
+        let unlinked: Vec<(i64, String)> = {
+            let mut stmt = conn.prepare(
+                "SELECT oi.id, COALESCE(oi.item_title,'') FROM order_items oi
+                 WHERE oi.order_id = ?1
+                   AND oi.inventory_item_id IS NULL
+                   AND oi.item_title IS NOT NULL AND oi.item_title != ''"
+            ).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params![order_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|e| e.to_string())?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| e.to_string())?;
+            rows
+        };
+        all_unlinked.extend(unlinked);
+    }
+
+    for (oi_id, title) in all_unlinked {
         let candidates: Vec<i64> = {
             let mut stmt = conn.prepare(
                 "SELECT id FROM inventory_items
