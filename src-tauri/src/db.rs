@@ -988,10 +988,29 @@ pub fn query_inventory(
     search: &str,
     status_filter: &str,
 ) -> Result<Vec<InventoryItemRow>, String> {
-    let like = format!("%{}%", search);
-    let mut stmt = conn
-        .prepare(
-            "SELECT i.id, i.title,
+    // Split into keywords for multi-word title matching (AND semantics).
+    // Other fields (SKU, card_name, set_name) still use the full string.
+    let keywords: Vec<String> = search
+        .split_whitespace()
+        .map(|w| format!("%{}%", w))
+        .collect();
+    let full_like = format!("%{}%", search);
+
+    let title_clause = if keywords.is_empty() {
+        "1=1".to_string()
+    } else {
+        keywords
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("i.title LIKE ?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(" AND ")
+    };
+    let other_pos  = keywords.len() + 1;
+    let status_pos = keywords.len() + 2;
+
+    let sql = format!(
+        "SELECT i.id, i.title,
                 COALESCE(i.card_name,''), COALESCE(i.card_number,''),
                 COALESCE(i.set_name,''), COALESCE(i.rarity,''),
                 COALESCE(i.finish,''), COALESCE(i.specialty,''),
@@ -1004,17 +1023,25 @@ pub fn query_inventory(
                 COALESCE(i.pic_urls,''),
                 COALESCE(i.card_type,''), COALESCE(i.graded,''),
                 COALESCE(i.color,''), COALESCE(i.character,'')
-             FROM inventory_items i
-             LEFT JOIN sku_schemas s ON s.id = i.sku_schema_id
-             WHERE (i.title LIKE ?1 OR i.card_name LIKE ?1 OR i.custom_label LIKE ?1 OR i.set_name LIKE ?1)
-               AND (?2 = '' OR i.status = ?2)
-             ORDER BY i.id DESC
-             LIMIT 500",
-        )
-        .map_err(|e| e.to_string())?;
+         FROM inventory_items i
+         LEFT JOIN sku_schemas s ON s.id = i.sku_schema_id
+         WHERE (({title_clause})
+                OR i.card_name   LIKE ?{other_pos}
+                OR i.custom_label LIKE ?{other_pos}
+                OR i.set_name    LIKE ?{other_pos})
+           AND (?{status_pos} = '' OR i.status = ?{status_pos})
+         ORDER BY i.id DESC
+         LIMIT 500"
+    );
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+
+    let mut param_values: Vec<String> = keywords;
+    param_values.push(full_like);
+    param_values.push(status_filter.to_string());
 
     let rows = stmt
-        .query_map(params![like, status_filter], |row| {
+        .query_map(rusqlite::params_from_iter(param_values.iter()), |row| {
             let labels_json: String = row.get(21)?;
             let segment_labels: Vec<String> =
                 serde_json::from_str(&labels_json).unwrap_or_default();

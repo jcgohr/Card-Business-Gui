@@ -165,10 +165,36 @@
   flex-shrink: 0;
 }
 
-.inv-search {
+.inv-search-wrap {
   flex: 1;
-  padding: 0.45em 0.75em;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inv-search {
+  width: 100%;
+  padding: 0.45em 2em 0.45em 0.75em;
   font-size: 0.875rem;
+}
+
+.inv-search-clear {
+  position: absolute;
+  right: 0.4em;
+  padding: 0.1em 0.35em;
+  font-size: 0.75rem;
+  line-height: 1;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: #f87171;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.inv-search-clear:hover {
+  background: rgba(248, 113, 113, 0.15);
+  border-color: transparent;
 }
 
 .inv-status-filter {

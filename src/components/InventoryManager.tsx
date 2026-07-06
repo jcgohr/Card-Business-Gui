@@ -550,13 +550,18 @@ export default function InventoryManager() {
       </div>
 
       <div className="inv-filters">
-        <input
-          type="text"
-          className="inv-search"
-          placeholder="Search title, card name, SKU, set…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="inv-search-wrap">
+          <input
+            type="text"
+            className="inv-search"
+            placeholder="Search title, card name, SKU, set…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button className="inv-search-clear" onClick={() => setSearch("")}>✕</button>
+          )}
+        </div>
         <select
           className="inv-status-filter"
           value={statusFilter}
