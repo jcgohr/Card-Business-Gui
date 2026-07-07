@@ -21,6 +21,14 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdCOTY0NzNDOTZCNDQwQQpSV1FLUkd2SmMyUzVCK2FYNGd1OG5kdjJWZUhLYkZqcmVYTldWaEtiR3FqOFBTTnBaTThhbjNrQgo=",
+      "endpoints": [
+        "https://github.com/jcgohr/Card-Business-Gui/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

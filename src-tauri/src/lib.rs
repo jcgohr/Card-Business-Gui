@@ -1335,10 +1335,16 @@ fn get_orders_for_labels(
 fn open_print_html(html: String) -> Result<(), String> {
     let path = std::env::temp_dir().join("pick_sheet_print.html");
     std::fs::write(&path, html).map_err(|e| e.to_string())?;
-    std::process::Command::new("open")
-        .arg(&path)
-        .spawn()
-        .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg(&path).spawn().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd").args(["/C", "start", "", &path.to_string_lossy().to_string()]).spawn().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -1350,6 +1356,8 @@ fn open_print_html(html: String) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;

@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "core:webview:allow-print",
-    "opener:default"
+    "opener:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

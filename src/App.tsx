@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 import Sidebar from "./components/Sidebar";
 import CardUploaderAutoUpload from "./components/CardUploaderAutoUpload";
@@ -25,6 +27,8 @@ function App() {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [watcherStatus, setWatcherStatus] = useState<WatcherStatus>({ running: false, activeCount: 0 });
   const [currentSection, setCurrentSection] = useState<number | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const idCounter = useRef(0);
 
   const addLog = useCallback((level: string, message: string) => {
@@ -34,6 +38,28 @@ function App() {
       return next.length > LOG_CAP ? next.slice(next.length - LOG_CAP) : next;
     });
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      check().then(update => {
+        if (update?.available) setUpdateAvailable(true);
+      }).catch(() => {});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  async function installUpdate() {
+    setUpdating(true);
+    try {
+      const update = await check();
+      if (update?.available) {
+        await update.downloadAndInstall();
+        await relaunch();
+      }
+    } catch {
+      setUpdating(false);
+    }
+  }
 
   useEffect(() => {
     const unlisten1 = listen<{ level: string; message: string }>(
@@ -61,6 +87,16 @@ function App() {
 
   return (
     <div className="app-shell">
+      {updateAvailable && (
+        <div className="app-update-banner">
+          A new version is available.
+          <button className="app-update-btn" onClick={installUpdate} disabled={updating}>
+            {updating ? "Installing…" : "Update & restart"}
+          </button>
+          <button className="app-update-dismiss" onClick={() => setUpdateAvailable(false)}>✕</button>
+        </div>
+      )}
+      <div className="app-body">
       <Sidebar activeId={activeView} onSelect={setActiveView} />
       <main className="app-main">
         {activeView === "card-uploader-auto-upload" && (
@@ -76,6 +112,7 @@ function App() {
         {activeView === "fulfillment" && <FulfillmentManager />}
         {activeView === "label-maker" && <LabelMaker />}
       </main>
+      </div>
     </div>
   );
 }
