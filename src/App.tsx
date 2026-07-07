@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 import CardUploaderAutoUpload from "./components/CardUploaderAutoUpload";
 import InventoryManager from "./components/InventoryManager";
 import FulfillmentManager from "./components/FulfillmentManager";
+import LabelMaker from "./components/LabelMaker";
 
 const LOG_CAP = 500;
 
@@ -73,6 +74,7 @@ function App() {
         )}
         {activeView === "inventory" && <InventoryManager />}
         {activeView === "fulfillment" && <FulfillmentManager />}
+        {activeView === "label-maker" && <LabelMaker />}
       </main>
     </div>
   );

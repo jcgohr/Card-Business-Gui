@@ -23,6 +23,7 @@ const sections: SidebarSection[] = [
     items: [
       { id: "inventory",    label: "Inventory" },
       { id: "fulfillment",  label: "Fulfillment" },
+      { id: "label-maker",  label: "Label Maker" },
     ],
   },
 ];

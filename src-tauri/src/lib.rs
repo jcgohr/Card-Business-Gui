@@ -45,6 +45,13 @@ pub struct Config {
     pub image_extensions: Vec<String>,
     pub folder_settle_delay: u32,
     pub blacklisted_folders: Vec<String>,
+    pub return_name: String,
+    pub return_address1: String,
+    pub return_address2: String,
+    pub return_city: String,
+    pub return_state: String,
+    pub return_zip: String,
+    pub return_country: String,
 }
 
 impl Default for Config {
@@ -77,6 +84,13 @@ impl Default for Config {
             image_extensions: vec![".jpg".into(), ".jpeg".into(), ".png".into(), ".webp".into()],
             folder_settle_delay: 5,
             blacklisted_folders: vec![],
+            return_name: String::new(),
+            return_address1: String::new(),
+            return_address2: String::new(),
+            return_city: String::new(),
+            return_state: String::new(),
+            return_zip: String::new(),
+            return_country: String::new(),
         }
     }
 }
@@ -1268,6 +1282,55 @@ fn print_webview(window: tauri::WebviewWindow) -> Result<(), String> {
     window.print().map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+struct LabelOrder {
+    order_id: i64,
+    ebay_order_number: String,
+    recipient: String,
+    address1: String,
+    address2: String,
+    city: String,
+    state: String,
+    zip: String,
+    country: String,
+}
+
+#[tauri::command]
+fn get_orders_for_labels(
+    state: tauri::State<'_, Arc<AppState>>,
+    fulfillment_id: i64,
+) -> Result<Vec<LabelOrder>, String> {
+    let conn = state.db.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT o.id, COALESCE(o.ebay_order_number,''),
+                COALESCE(NULLIF(o.ship_to_name,''), NULLIF(o.buyer_name,''), NULLIF(o.buyer_username,''), 'Unknown'),
+                COALESCE(o.ship_to_address1,''), COALESCE(o.ship_to_address2,''),
+                COALESCE(o.ship_to_city,''), COALESCE(o.ship_to_state,''),
+                COALESCE(o.ship_to_zip,''), COALESCE(o.ship_to_country,'')
+         FROM orders o
+         WHERE o.fulfillment_id = ?1
+         ORDER BY o.id",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(rusqlite::params![fulfillment_id], |row| {
+        Ok(LabelOrder {
+            order_id:           row.get(0)?,
+            ebay_order_number:  row.get(1)?,
+            recipient:          row.get(2)?,
+            address1:           row.get(3)?,
+            address2:           row.get(4)?,
+            city:               row.get(5)?,
+            state:              row.get(6)?,
+            zip:                row.get(7)?,
+            country:            row.get(8)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows)
+}
+
 #[tauri::command]
 fn open_print_html(html: String) -> Result<(), String> {
     let path = std::env::temp_dir().join("pick_sheet_print.html");
@@ -1335,6 +1398,7 @@ pub fn run() {
             get_pick_sheet,
             print_webview,
             open_print_html,
+            get_orders_for_labels,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

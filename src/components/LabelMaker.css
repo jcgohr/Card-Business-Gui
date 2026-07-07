@@ -1,0 +1,254 @@
+.lm {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 1.5rem;
+  gap: 1.5rem;
+  overflow-y: auto;
+}
+
+.lm-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.lm-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lm-mode-toggle {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.lm-mode-btn {
+  padding: 0.3em 0.85em;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.lm-mode-btn--active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ── Sections ────────────────────────────────────────── */
+
+.lm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.lm-section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── Return address form ─────────────────────────────── */
+
+.lm-return-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lm-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lm-input {
+  padding: 0.45em 0.75em;
+  font-size: 0.875rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  min-width: 0;
+}
+
+.lm-input:focus { border-color: var(--accent); }
+
+.lm-input--full { width: 100%; }
+.lm-input--short { width: 6rem; flex-shrink: 0; }
+
+.lm-save-btn {
+  align-self: flex-start;
+  padding: 0.4em 1em;
+  font-size: 0.85rem;
+}
+
+/* ── Batch list ──────────────────────────────────────── */
+
+.lm-batch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lm-batch-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.65rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.lm-batch-chip:hover { border-color: var(--accent); }
+
+.lm-batch-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lm-batch-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Order list ──────────────────────────────────────── */
+
+.lm-order-section {
+  flex: 1;
+  min-height: 0;
+}
+
+.lm-order-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.lm-order-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.lm-order-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lm-back-btn {
+  padding: 0.3em 0.75em;
+  font-size: 0.8rem;
+}
+
+.lm-select-all-btn {
+  padding: 0.3em 0.75em;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.lm-print-btn {
+  padding: 0.4em 1.1em;
+  font-size: 0.875rem;
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.lm-print-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #000;
+}
+
+.lm-print-btn:disabled { opacity: 0.4; cursor: default; }
+
+.lm-warn {
+  font-size: 0.8rem;
+  color: #f59e0b;
+}
+
+.lm-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.lm-order-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.lm-order-row:hover { border-color: var(--border); }
+.lm-order-row--checked { border-color: var(--accent-dim); }
+
+.lm-order-row input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  padding: 0;
+  box-shadow: none;
+}
+
+.lm-order-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.lm-order-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lm-order-addr {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lm-order-num {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  flex-shrink: 0;
+}
+
+.lm-empty {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
