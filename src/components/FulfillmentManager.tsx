@@ -94,7 +94,7 @@ function parsePicUrls(raw: string): string[] {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function FulfillmentManager() {
+export default function FulfillmentManager({ isActive = true }: { isActive?: boolean }) {
   const [batches, setBatches] = useState<FulfillmentBatch[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<FulfillmentBatch | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -246,7 +246,7 @@ export default function FulfillmentManager() {
   useEffect(() => { advanceRef.current = advance; }, [advance]);
 
   useEffect(() => {
-    if (phase !== "packing") return;
+    if (phase !== "packing" || !isActive) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight" || e.key === "Enter") {
         e.preventDefault();
@@ -258,7 +258,7 @@ export default function FulfillmentManager() {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [phase]);
+  }, [phase, isActive]);
 
   // ── Pick sheet derived data ──────────────────────────────────────────────
 

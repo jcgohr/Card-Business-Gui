@@ -99,7 +99,7 @@ function App() {
       <div className="app-body">
       <Sidebar activeId={activeView} onSelect={setActiveView} />
       <main className="app-main">
-        {activeView === "card-uploader-auto-upload" && (
+        <div style={{ display: activeView === "card-uploader-auto-upload" ? "contents" : "none" }}>
           <CardUploaderAutoUpload
             logs={logs}
             onAddLog={addLog}
@@ -107,10 +107,16 @@ function App() {
             watcherStatus={watcherStatus}
             externalSection={currentSection}
           />
-        )}
-        {activeView === "inventory" && <InventoryManager />}
-        {activeView === "fulfillment" && <FulfillmentManager />}
-        {activeView === "label-maker" && <LabelMaker />}
+        </div>
+        <div style={{ display: activeView === "inventory" ? "contents" : "none" }}>
+          <InventoryManager />
+        </div>
+        <div style={{ display: activeView === "fulfillment" ? "contents" : "none" }}>
+          <FulfillmentManager isActive={activeView === "fulfillment"} />
+        </div>
+        <div style={{ display: activeView === "label-maker" ? "contents" : "none" }}>
+          <LabelMaker />
+        </div>
       </main>
       </div>
     </div>
