@@ -1194,6 +1194,51 @@ fn delete_inventory_item(
 }
 
 // ---------------------------------------------------------------------------
+// Mislocated card lookup
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct CardLocation {
+    id: i64,
+    custom_label: String,
+    title: String,
+    status: String,
+    condition: Option<String>,
+    pic_urls: Option<String>,
+}
+
+#[tauri::command]
+fn find_card_locations(
+    state: tauri::State<'_, Arc<AppState>>,
+    title: String,
+) -> Result<Vec<CardLocation>, String> {
+    let conn = state.db.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, COALESCE(custom_label,''), COALESCE(title,''), COALESCE(status,''),
+                condition, pic_urls
+         FROM inventory_items
+         WHERE LOWER(title) = LOWER(?1)
+           AND COALESCE(status,'') NOT IN ('sold','missing')
+         ORDER BY custom_label"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(rusqlite::params![title], |row| {
+        Ok(CardLocation {
+            id:           row.get(0)?,
+            custom_label: row.get(1)?,
+            title:        row.get(2)?,
+            status:       row.get(3)?,
+            condition:    row.get(4)?,
+            pic_urls:     row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows)
+}
+
+// ---------------------------------------------------------------------------
 // Active eBay listings commands
 // ---------------------------------------------------------------------------
 
@@ -1407,6 +1452,7 @@ pub fn run() {
             print_webview,
             open_print_html,
             get_orders_for_labels,
+            find_card_locations,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -40,7 +40,17 @@ interface PackOrder {
   items: PackItem[];
 }
 
+interface CardLocation {
+  id: number;
+  custom_label: string;
+  title: string;
+  status: string;
+  condition: string | null;
+  pic_urls: string | null;
+}
+
 type Phase = "picksheet" | "picking" | "packing" | "complete";
+type MislocationStep = "idle" | "select" | "resolve";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,6 +128,14 @@ export default function FulfillmentManager({ isActive = true }: { isActive?: boo
   const [packViewMode, setPackViewMode] = useState<"detail" | "grid">("detail");
   const [checkedGridItems, setCheckedGridItems] = useState<Set<string>>(new Set());
   const [pulsePhase, setPulsePhase] = useState(false);
+
+  // Mislocated card finder
+  const [mislocationStep, setMislocationStep] = useState<MislocationStep>("idle");
+  const [mislocatedSelected, setMislocatedSelected] = useState<Set<number>>(new Set());
+  const [resolveQueue, setResolveQueue] = useState<PickSheetItem[]>([]);
+  const [resolveIdx, setResolveIdx] = useState(0);
+  const [cardLocations, setCardLocations] = useState<CardLocation[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
 
   // Tick every second during pick/pack
   useEffect(() => {
@@ -314,6 +332,57 @@ export default function FulfillmentManager({ isActive = true }: { isActive?: boo
 
   const currentPackOrder = packOrders[currentOrderIdx] ?? null;
 
+  // ── Mislocated card handlers ─────────────────────────────────────────────
+
+  const allPickItems = [...withSku, ...withoutSku];
+
+  function toggleMislocated(idx: number) {
+    setMislocatedSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  }
+
+  async function startResolving() {
+    const queue = allPickItems.filter((_, i) => mislocatedSelected.has(i));
+    if (queue.length === 0) return;
+    setResolveQueue(queue);
+    setResolveIdx(0);
+    setLocationsLoading(true);
+    setMislocationStep("resolve");
+    try {
+      const locs = await invoke<CardLocation[]>("find_card_locations", { title: queue[0].item_title });
+      setCardLocations(locs);
+    } catch { setCardLocations([]); }
+    finally { setLocationsLoading(false); }
+  }
+
+  async function advanceResolve() {
+    const next = resolveIdx + 1;
+    if (next >= resolveQueue.length) { closeMislocation(); return; }
+    setResolveIdx(next);
+    setLocationsLoading(true);
+    try {
+      const locs = await invoke<CardLocation[]>("find_card_locations", { title: resolveQueue[next].item_title });
+      setCardLocations(locs);
+    } catch { setCardLocations([]); }
+    finally { setLocationsLoading(false); }
+  }
+
+  async function markLocation(id: number, status: string) {
+    try { await invoke("bulk_update_inventory_status", { ids: [id], status }); } catch {}
+    setCardLocations(prev => prev.filter(l => l.id !== id));
+  }
+
+  function closeMislocation() {
+    setMislocationStep("idle");
+    setMislocatedSelected(new Set());
+    setResolveQueue([]);
+    setResolveIdx(0);
+    setCardLocations([]);
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -483,6 +552,9 @@ export default function FulfillmentManager({ isActive = true }: { isActive?: boo
           <p className="ff-picking-label">Go pick your cards</p>
           <div className="ff-pick-timer">{formatTime(pickElapsed)}</div>
           <p className="ff-picking-hint">Press "Done Picking" when you're back at your desk</p>
+          <button className="ff-misloc-trigger-btn" onClick={() => setMislocationStep("select")}>
+            Find Mislocated Cards
+          </button>
         </div>
       )}
 
@@ -588,6 +660,93 @@ export default function FulfillmentManager({ isActive = true }: { isActive?: boo
             <span>Pack time: {formatTime(savedPackSecs)}</span>
           </div>
           <p className="ff-complete-hint">Returning to fulfillments…</p>
+        </div>
+      )}
+
+      {/* ── Mislocated card finder modal ────────────────────────────────── */}
+
+      {mislocationStep !== "idle" && (
+        <div className="ff-misloc-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeMislocation(); }}>
+          <div className="ff-misloc-modal">
+
+            <div className="ff-misloc-header">
+              <span className="ff-misloc-header-title">
+                {mislocationStep === "select"
+                  ? "Find Mislocated Cards"
+                  : `Card ${resolveIdx + 1} of ${resolveQueue.length}`}
+              </span>
+              <button className="ff-misloc-close" onClick={closeMislocation}>✕</button>
+            </div>
+
+            {mislocationStep === "select" && (
+              <>
+                <p className="ff-misloc-hint">Tap the cards you couldn't find at their listed location:</p>
+                <div className="ff-misloc-list">
+                  {allPickItems.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className={`ff-misloc-pick-item${mislocatedSelected.has(idx) ? " ff-misloc-pick-item--selected" : ""}`}
+                      onClick={() => toggleMislocated(idx)}
+                    >
+                      <span className="ff-misloc-pick-sku">{item.custom_label || "—"}</span>
+                      <span className="ff-misloc-pick-title">{item.item_title || "—"}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="ff-misloc-footer">
+                  <button className="ff-misloc-cancel-btn" onClick={closeMislocation}>Cancel</button>
+                  <button
+                    className="ff-misloc-continue-btn"
+                    disabled={mislocatedSelected.size === 0}
+                    onClick={startResolving}
+                  >
+                    Continue ({mislocatedSelected.size}) →
+                  </button>
+                </div>
+              </>
+            )}
+
+            {mislocationStep === "resolve" && (
+              <>
+                <div className="ff-misloc-searching-for">
+                  <span className="ff-misloc-search-label">Looking for:</span>
+                  <span className="ff-misloc-search-title">{resolveQueue[resolveIdx]?.item_title || "—"}</span>
+                  {resolveQueue[resolveIdx]?.custom_label && (
+                    <span className="ff-misloc-search-orig">Originally at {resolveQueue[resolveIdx].custom_label}</span>
+                  )}
+                </div>
+
+                {locationsLoading ? (
+                  <div className="ff-misloc-loading">Searching inventory…</div>
+                ) : cardLocations.length === 0 ? (
+                  <div className="ff-misloc-empty-locs">
+                    <p>No other locations found in inventory.</p>
+                    <button className="ff-misloc-continue-btn" onClick={advanceResolve}>
+                      {resolveIdx < resolveQueue.length - 1 ? "Next Card →" : "Done"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="ff-misloc-locations">
+                    {cardLocations.map(loc => (
+                      <div key={loc.id} className="ff-misloc-location">
+                        <div className="ff-misloc-loc-info">
+                          <span className="ff-misloc-loc-sku">{loc.custom_label || "No SKU"}</span>
+                          <span className="ff-misloc-loc-status">{loc.status}</span>
+                          {loc.condition && <span className="ff-misloc-loc-cond">{loc.condition}</span>}
+                        </div>
+                        <div className="ff-misloc-loc-actions">
+                          <button className="ff-misloc-missing-btn" onClick={() => markLocation(loc.id, "missing")}>Missing</button>
+                          <button className="ff-misloc-sold-btn" onClick={() => markLocation(loc.id, "sold")}>Sold</button>
+                          <button className="ff-misloc-found-btn" onClick={advanceResolve}>Found It! ✓</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+          </div>
         </div>
       )}
 
