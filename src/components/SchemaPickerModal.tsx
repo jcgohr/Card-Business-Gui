@@ -21,6 +21,7 @@ interface Props {
 const DEFAULT_LABELS = ["Collection", "Box", "Section", "Card"];
 const CHAOS_SEGMENTS_KEY = "chaos_last_segments";
 const LAST_SCHEMA_KEY = "schema_last_id";
+const LAST_FORMAT_KEY = "import_last_format";
 
 function loadSavedSegments(): string[] {
   try {
@@ -55,7 +56,10 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
     const v = localStorage.getItem(LAST_SCHEMA_KEY);
     return v ? Number(v) : null;
   });
-  const [format, setFormat] = useState<CsvFormat>("carduploader");
+  const [format, setFormat] = useState<CsvFormat>(() => {
+    const saved = localStorage.getItem(LAST_FORMAT_KEY);
+    return (saved === "carddealerpro" || saved === "carduploader") ? saved : "carduploader";
+  });
   const [chaosSegments, setChaosSegments] = useState<string[]>(loadSavedSegments);
 
   // New schema form
@@ -154,14 +158,14 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
           <div className="spm-format-toggle">
             <button
               className={`spm-format-btn${format === "carddealerpro" ? " spm-format-btn--active" : ""}`}
-              onClick={() => setFormat("carddealerpro")}
+              onClick={() => { setFormat("carddealerpro"); localStorage.setItem(LAST_FORMAT_KEY, "carddealerpro"); }}
             >
               <img src="/carddealerpro.svg" alt="" className="spm-format-icon" />
               CardDealerPro
             </button>
             <button
               className={`spm-format-btn${format === "carduploader" ? " spm-format-btn--active" : ""}`}
-              onClick={() => setFormat("carduploader")}
+              onClick={() => { setFormat("carduploader"); localStorage.setItem(LAST_FORMAT_KEY, "carduploader"); }}
             >
               <img src="/carduploader.png" alt="" className="spm-format-icon" />
               CardUploader
