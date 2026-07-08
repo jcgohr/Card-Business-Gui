@@ -116,6 +116,8 @@ export default function FulfillmentManager() {
   const [packOrders, setPackOrders] = useState<PackOrder[]>([]);
   const [currentOrderIdx, setCurrentOrderIdx] = useState(0);
   const [packViewMode, setPackViewMode] = useState<"detail" | "grid">("detail");
+  const [checkedGridItems, setCheckedGridItems] = useState<Set<string>>(new Set());
+  const [pulsePhase, setPulsePhase] = useState(false);
 
   // Tick every second during pick/pack
   useEffect(() => {
@@ -228,6 +230,16 @@ export default function FulfillmentManager() {
       setCurrentOrderIdx(i => i + 1);
     }
   }, [packOrders, currentOrderIdx, packStartMs, loadBatches]);
+
+  // Reset checked items when moving to a new order
+  useEffect(() => { setCheckedGridItems(new Set()); }, [currentOrderIdx]);
+
+  // Shared pulse clock — all checked grid items read from this, so they stay in sync
+  useEffect(() => {
+    if (phase !== "packing") return;
+    const id = setInterval(() => setPulsePhase(p => !p), 700);
+    return () => clearInterval(id);
+  }, [phase]);
 
   // Keep ref fresh so keydown handler doesn't go stale
   const advanceRef = useRef(advance);
@@ -478,13 +490,23 @@ export default function FulfillmentManager() {
 
       {phase === "packing" && currentPackOrder && (
         <div className="ff-packing">
-          <div className="ff-pack-recipient">
-            {currentPackOrder.recipient}
-            {currentPackOrder.order_ids.length > 1 && (
-              <span className="ff-pack-merged-badge">
-                {currentPackOrder.order_ids.length} orders merged
+          <div className="ff-pack-top">
+            <div className="ff-pack-recipient">
+              {currentPackOrder.recipient}
+              {currentPackOrder.order_ids.length > 1 && (
+                <span className="ff-pack-merged-badge">
+                  {currentPackOrder.order_ids.length} orders merged
+                </span>
+              )}
+            </div>
+            <div className={`ff-pack-selection-bar${checkedGridItems.size > 0 ? " ff-pack-selection-bar--visible" : ""}`}>
+              <span className="ff-pack-selection-count">
+                {checkedGridItems.size} card{checkedGridItems.size !== 1 ? "s" : ""} selected
               </span>
-            )}
+              <button className="ff-pack-selection-clear" onClick={() => setCheckedGridItems(new Set())}>
+                Clear
+              </button>
+            </div>
           </div>
           {packViewMode === "detail" ? (
             <div className="ff-pack-cards">
@@ -513,12 +535,22 @@ export default function FulfillmentManager() {
               )}
             </div>
           ) : (
-            <div className="ff-pack-grid">
+            <div className={`ff-pack-grid${pulsePhase ? " ff-pulse-bright" : " ff-pulse-dim"}`}>
               {currentPackOrder.items.flatMap((item, idx) =>
                 Array.from({ length: Math.max(1, item.quantity) }, (_, copy) => {
                   const pics = parsePicUrls(item.pic_urls);
+                  const key = `${idx}-${copy}`;
+                  const checked = checkedGridItems.has(key);
                   return (
-                    <div key={`${idx}-${copy}`} className="ff-pack-grid-item">
+                    <div
+                      key={key}
+                      className={`ff-pack-grid-item${checked ? " ff-pack-grid-item--checked" : ""}`}
+                      onClick={() => setCheckedGridItems(prev => {
+                        const next = new Set(prev);
+                        if (next.has(key)) next.delete(key); else next.add(key);
+                        return next;
+                      })}
+                    >
                       {pics.length > 0
                         ? <img src={pics[0]} alt="Front" className="ff-pack-grid-img" />
                         : <div className="ff-pack-grid-img-placeholder">No image</div>
