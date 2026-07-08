@@ -457,7 +457,7 @@ pub fn check_sku_conflicts(
     Ok(SkuCheckResult { conflicts })
 }
 
-pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_id: Option<i64>, keep_first_sku: bool, format_hint: Option<&str>, chaos_location: Option<&str>) -> Result<ImportResult, String> {
+pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_id: Option<i64>, keep_first_sku: bool, keep_all_skus: bool, format_hint: Option<&str>, chaos_location: Option<&str>) -> Result<ImportResult, String> {
     let raw = std::fs::read(path).map_err(|e| e.to_string())?;
     let data = skip_empty_leading_rows(strip_bom(raw));
     let mut rdr = csv::Reader::from_reader(data.as_slice());
@@ -586,14 +586,18 @@ pub fn import_inventory(conn: &Connection, path: &Path, filename: &str, schema_i
                 }
 
                 let raw_label = get(record, c_custom_label);
-                let sku_count = if raw_label.is_empty() { 1 } else {
-                    raw_label.split(',').filter(|s| !s.trim().is_empty()).count().max(1)
+                let skus: Vec<String> = if raw_label.is_empty() {
+                    vec![]
+                } else {
+                    raw_label.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
                 };
-                let first_sku = raw_label.split(',').next().unwrap_or("").trim().to_string();
+                let sku_count = skus.len().max(1);
 
                 for row_idx in 0..sku_count {
-                    let label_val = if keep_first_sku && row_idx == 0 {
-                        first_sku.clone()
+                    let label_val = if keep_all_skus {
+                        skus.get(row_idx).cloned().unwrap_or_default()
+                    } else if keep_first_sku && row_idx == 0 {
+                        skus.first().cloned().unwrap_or_default()
                     } else {
                         String::new()
                     };

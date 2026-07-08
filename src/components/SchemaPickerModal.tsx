@@ -11,10 +11,12 @@ interface SkuSchema {
 
 type CsvFormat = "carddealerpro" | "carduploader";
 
+type SkuMode = "clear" | "first" | "all";
+
 interface Props {
   path: string;
   filename: string;
-  onConfirm: (schemaId: number | null, keepFirstSku: boolean, format: CsvFormat, chaosLocation: string | null) => void;
+  onConfirm: (schemaId: number | null, keepFirstSku: boolean, keepAllSkus: boolean, format: CsvFormat, chaosLocation: string | null) => void;
   onCancel: () => void;
 }
 
@@ -66,7 +68,7 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
   const [newName, setNewName] = useState("");
   const [newLabels, setNewLabels] = useState<string[]>([...DEFAULT_LABELS]);
   const [creating, setCreating] = useState(false);
-  const [keepFirstSku, setKeepFirstSku] = useState(false);
+  const [skuMode, setSkuMode] = useState<SkuMode>("clear");
 
   useEffect(() => {
     invoke<SkuSchema[]>("get_sku_schemas").then(setSchemas).catch(() => {});
@@ -124,7 +126,7 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
         });
         commitChaos();
         commitSchema(schema.id);
-        onConfirm(schema.id, keepFirstSku, format, chaosLocation);
+        onConfirm(schema.id, skuMode === "first", skuMode === "all", format, chaosLocation);
       } catch (e) {
         alert(`Failed to create schema: ${e}`);
         setCreating(false);
@@ -132,7 +134,7 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
     } else {
       commitChaos();
       commitSchema(selectedId);
-      onConfirm(selectedId, keepFirstSku, format, chaosLocation);
+      onConfirm(selectedId, skuMode === "first", skuMode === "all", format, chaosLocation);
     }
   }
 
@@ -307,19 +309,24 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
         {/* Footer */}
         <div className="spm-footer">
           {format === "carduploader" && (
-            <label className="spm-keep-sku">
-              <input
-                type="checkbox"
-                checked={keepFirstSku}
-                onChange={e => setKeepFirstSku(e.target.checked)}
-              />
-              Keep first SKU in CustomLabel
-            </label>
+            <div className="spm-sku-mode">
+              {(["clear", "first", "all"] as SkuMode[]).map(mode => (
+                <label key={mode} className="spm-sku-mode-opt">
+                  <input
+                    type="radio"
+                    name="skuMode"
+                    checked={skuMode === mode}
+                    onChange={() => setSkuMode(mode)}
+                  />
+                  {mode === "clear" ? "Clear SKUs" : mode === "first" ? "Keep first SKU" : "Keep all SKUs"}
+                </label>
+              ))}
+            </div>
           )}
           {format === "carddealerpro" && !chaosLocation && (
             <span className="spm-chaos-required">Enter a chaos location above to import</span>
           )}
-          <button className="spm-skip" disabled={format === "carddealerpro" && !chaosLocation} onClick={() => { commitChaos(); commitSchema(selectedId); onConfirm(null, keepFirstSku, format, chaosLocation); }}>
+          <button className="spm-skip" disabled={format === "carddealerpro" && !chaosLocation} onClick={() => { commitChaos(); commitSchema(selectedId); onConfirm(null, skuMode === "first", skuMode === "all", format, chaosLocation); }}>
             Import without schema
           </button>
           <div className="spm-footer-right">

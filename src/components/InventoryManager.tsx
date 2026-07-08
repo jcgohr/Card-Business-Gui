@@ -83,7 +83,7 @@ export default function InventoryManager() {
   const [pendingImport, setPendingImport] = useState<{ path: string; filename: string } | null>(null);
   const [pendingBulkImport, setPendingBulkImport] = useState<{ path: string; filename: string }[] | null>(null);
   const [skuConflicts, setSkuConflicts] = useState<{ sku: string; files: string[]; in_db: boolean }[] | null>(null);
-  const [pendingImportArgs, setPendingImportArgs] = useState<{ files: { path: string; filename: string }[]; schemaId: number | null; keepFirstSku: boolean; format: "carddealerpro" | "carduploader"; chaosLocation: string | null } | null>(null);
+  const [pendingImportArgs, setPendingImportArgs] = useState<{ files: { path: string; filename: string }[]; schemaId: number | null; keepFirstSku: boolean; keepAllSkus: boolean; format: "carddealerpro" | "carduploader"; chaosLocation: string | null } | null>(null);
   const [confirmClearActive, setConfirmClearActive] = useState(false);
 
   // Detail panel
@@ -265,7 +265,7 @@ export default function InventoryManager() {
     }
   }
 
-  async function runImport(files: { path: string; filename: string }[], schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
+  async function runImport(files: { path: string; filename: string }[], schemaId: number | null, keepFirstSku: boolean, keepAllSkus: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
     setLoading(true);
     setStatusMsg(null);
     let totalImported = 0;
@@ -278,6 +278,7 @@ export default function InventoryManager() {
           path: file.path,
           schemaId,
           keepFirstSku,
+          keepAllSkus,
           format,
           chaosLocation,
         });
@@ -298,7 +299,7 @@ export default function InventoryManager() {
     setLoading(false);
   }
 
-  async function checkAndImport(files: { path: string; filename: string }[], schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
+  async function checkAndImport(files: { path: string; filename: string }[], schemaId: number | null, keepFirstSku: boolean, keepAllSkus: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
     try {
       const pathPairs = files.map(f => [f.path, f.filename] as [string, string]);
       const result = await invoke<{ conflicts: { sku: string; files: string[]; in_db: boolean }[] }>(
@@ -307,13 +308,13 @@ export default function InventoryManager() {
       );
       if (result.conflicts.length > 0) {
         setSkuConflicts(result.conflicts);
-        setPendingImportArgs({ files, schemaId, keepFirstSku, format, chaosLocation });
+        setPendingImportArgs({ files, schemaId, keepFirstSku, keepAllSkus, format, chaosLocation });
         return;
       }
     } catch {
       // If check fails, proceed anyway
     }
-    await runImport(files, schemaId, keepFirstSku, format, chaosLocation);
+    await runImport(files, schemaId, keepFirstSku, keepAllSkus, format, chaosLocation);
   }
 
   async function handleBulkImport() {
@@ -330,18 +331,18 @@ export default function InventoryManager() {
     }
   }
 
-  async function doBulkImport(schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
+  async function doBulkImport(schemaId: number | null, keepFirstSku: boolean, keepAllSkus: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
     const files = pendingBulkImport;
     if (!files) return;
     setPendingBulkImport(null);
-    await checkAndImport(files, schemaId, keepFirstSku, format, chaosLocation);
+    await checkAndImport(files, schemaId, keepFirstSku, keepAllSkus, format, chaosLocation);
   }
 
-  async function doImport(schemaId: number | null, keepFirstSku: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
+  async function doImport(schemaId: number | null, keepFirstSku: boolean, keepAllSkus: boolean, format: "carddealerpro" | "carduploader", chaosLocation: string | null) {
     if (!pendingImport) return;
     const file = pendingImport;
     setPendingImport(null);
-    await checkAndImport([file], schemaId, keepFirstSku, format, chaosLocation);
+    await checkAndImport([file], schemaId, keepFirstSku, keepAllSkus, format, chaosLocation);
   }
 
   async function handleImportActiveListings() {
@@ -471,7 +472,7 @@ export default function InventoryManager() {
                 const args = pendingImportArgs;
                 setSkuConflicts(null);
                 setPendingImportArgs(null);
-                await runImport(args.files, args.schemaId, args.keepFirstSku, args.format, args.chaosLocation);
+                await runImport(args.files, args.schemaId, args.keepFirstSku, args.keepAllSkus, args.format, args.chaosLocation);
               }}>
                 Import anyway
               </button>

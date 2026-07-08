@@ -1058,13 +1058,14 @@ fn import_inventory_csv(
     path: String,
     schema_id: Option<i64>,
     keep_first_sku: bool,
+    keep_all_skus: bool,
     format: Option<String>,
     chaos_location: Option<String>,
 ) -> Result<db::ImportResult, String> {
     let conn = state.db.lock().unwrap();
     let p = std::path::Path::new(&path);
     let filename = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-    db::import_inventory(&conn, p, &filename, schema_id, keep_first_sku, format.as_deref(), chaos_location.as_deref())
+    db::import_inventory(&conn, p, &filename, schema_id, keep_first_sku, keep_all_skus, format.as_deref(), chaos_location.as_deref())
 }
 
 #[tauri::command]

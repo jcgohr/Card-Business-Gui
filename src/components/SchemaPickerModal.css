@@ -474,17 +474,23 @@
   color: #f59e0b;
 }
 
-.spm-keep-sku {
+.spm-sku-mode {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 1rem;
+}
+
+.spm-sku-mode-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.8rem;
   color: var(--text-muted);
   cursor: pointer;
   user-select: none;
 }
 
-.spm-keep-sku input[type="checkbox"] {
+.spm-sku-mode-opt input[type="radio"] {
   cursor: pointer;
   accent-color: var(--accent);
 }
