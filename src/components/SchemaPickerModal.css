@@ -474,6 +474,16 @@
   color: #f59e0b;
 }
 
+.spm-sku-len-warning {
+  padding: 0.5rem 1rem;
+  background: rgba(234, 179, 8, 0.12);
+  border-top: 1px solid rgba(234, 179, 8, 0.35);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.35);
+  color: #ca8a04;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .spm-sku-mode {
   display: flex;
   align-items: center;

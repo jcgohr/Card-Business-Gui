@@ -146,6 +146,11 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
   const canImport = !!selectedId || !!newName.trim();
   const showBreakdown = activeLabels.length > 0 && samples.length > 0;
 
+  // eBay rejects SKUs longer than 50 characters
+  const longSkuSamples = format === "carduploader" ? samples.filter(s => s.length > 50) : [];
+  // For CDP the generated SKU is chaosLocation + "-" + card_number (up to 4 digits = 5 chars)
+  const chaosSkuTooLong = format === "carddealerpro" && chaosLocation !== null && chaosLocation.length + 5 > 50;
+
   return (
     <div className="spm-backdrop" onClick={onCancel}>
       <div className="spm" onClick={e => e.stopPropagation()}>
@@ -174,6 +179,18 @@ export default function SchemaPickerModal({ path, filename, onConfirm, onCancel 
             </button>
           </div>
         </div>
+
+        {(longSkuSamples.length > 0 || chaosSkuTooLong) && (
+          <div className="spm-sku-len-warning">
+            eBay rejects SKUs longer than 50 characters.{" "}
+            {longSkuSamples.length > 0 && (
+              <span>{longSkuSamples.length} SKU{longSkuSamples.length !== 1 ? "s" : ""} in the preview exceed this limit.</span>
+            )}
+            {chaosSkuTooLong && (
+              <span>The chaos location prefix is too long — generated SKUs will exceed 50 characters.</span>
+            )}
+          </div>
+        )}
 
         <div className="spm-body">
           {/* Chaos inventory location — CDP only */}
